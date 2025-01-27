@@ -13,8 +13,8 @@ import { RoomData } from './RoomData';
 import { MetadataSchema } from './MetadataSchema';
 
 export type ValkeyDriverOptions = {
-  roomcachesKey: string;
-  metadataSchema: MetadataSchema;
+  roomcachesKey?: string;
+  metadataSchema?: MetadataSchema;
 }
 
 export class ValkeyDriver implements MatchMakerDriver {
