@@ -1,0 +1,34 @@
+{
+  "name": "@colyseus/valkey-driver",
+  "version": "0.15.1",
+  "input": "./src/index.ts",
+  "main": "./build/index.js",
+  "module": "./build/index.mjs",
+  "typings": "./build/index.d.ts",
+  "dependencies": {
+    "@colyseus/core": "workspace:^",
+    "iovalkey": "^0.3.1"
+  },
+  "author": "Ray Tri, Endel Dreyer",
+  "license": "MIT",
+  "keywords": [
+    "colyseus",
+    "matchmaking",
+    "driver",
+    "valkey",
+    "valkeydb"
+  ],
+  "files": [
+    "build",
+    "LICENSE",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/colyseus/colyseus.git"
+  },
+  "homepage": "https://colyseus.io/",
+  "publishConfig": {
+    "access": "public"
+  }
+}
