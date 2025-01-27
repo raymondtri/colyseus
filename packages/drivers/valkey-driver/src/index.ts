@@ -63,6 +63,11 @@ export class ValkeyDriver implements MatchMakerDriver {
     await Promise.all(Object.keys(conditions).map(async (field) => {
       conditionalRoomIDs[field] = [];
 
+      if(field === 'roomId'){
+        conditionalRoomIDs[field].push(conditions[field]);
+        return;
+      }
+
       switch(this._metadataSchema[field]){
         case 'number':
           if(typeof conditions[field] !== 'number'){
@@ -160,7 +165,7 @@ export class ValkeyDriver implements MatchMakerDriver {
     }
   }
 
-  public findOne(conditions: Partial<typeof this._metadataSchema>){
+  public findOne(conditions: Partial<IRoomListingData&typeof this._metadataSchema>){
     return this.find(conditions)[0];
   }
 
