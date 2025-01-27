@@ -42,6 +42,12 @@ export class RoomData implements RoomListingData {
           this[field] = initialValues[field];
         } else {
           this.metadata[field] = initialValues[field];
+
+          // then we dynamically build a getter?
+          Object.defineProperty(this, field, {
+            get: () => this.metadata[field]
+          })
+
         }
       }
     }
@@ -93,6 +99,9 @@ export class RoomData implements RoomListingData {
         case 'boolean':
           // set up a simple numerical index sorted set for boolean fields
           txn.zadd(`${this.#roomcachesKey}:${field}`, this[field] ? 1 : 0, this.roomId);
+          break;
+        case 'json':
+          // do nothing as json is not queryable
           break;
         default:
           // this should _never_ be reachable due to strict typing

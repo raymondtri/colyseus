@@ -111,6 +111,9 @@ export class ValkeyDriver implements MatchMakerDriver {
 
           conditionalRoomIDs[field].push(...results);
           break;
+        case 'json':
+          logger.error(`ValkeyDriver: json fields are not supported for querying`);
+          break;
       }
     }));
 
