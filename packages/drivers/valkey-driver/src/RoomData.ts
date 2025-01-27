@@ -71,6 +71,10 @@ export class RoomData implements RoomListingData {
     txn.hset(this.#roomcachesKey, this.roomId, JSON.stringify(this.toJSON()));
     // then we iterate through the metadata schema and set each field
     for (const field in this.#metadataSchema){
+      if(field === 'roomId'){// there is no need to build a roomId index that links to the roomId lol
+        continue;
+      }
+
       switch (this.#metadataSchema[field]){
         case 'string':
           // set up a lexographically sorted set for string fields
