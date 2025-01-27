@@ -8,7 +8,7 @@ export class RoomData implements RoomListingData {
   public locked: boolean = false;
   public private: boolean = false;
   public maxClients: number = Infinity;
-  public metadata: any;
+  public metadata: { [field: string]: number | string | boolean } = {};
   public name: string;
   public publicAddress: string;
   public processId: string;
@@ -37,7 +37,12 @@ export class RoomData implements RoomListingData {
 
     for (const field in metadataSchema) {
       if (initialValues.hasOwnProperty(field)) {
-        this[field] = initialValues[field];
+
+        if(this.hasOwnProperty(field)){
+          this[field] = initialValues[field];
+        } else {
+          this.metadata[field] = initialValues[field];
+        }
       }
     }
   }
