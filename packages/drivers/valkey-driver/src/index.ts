@@ -57,128 +57,60 @@ export class ValkeyDriver implements MatchMakerDriver {
   }
 
   // this is really just for "nice to have" functionality, since you can query the client directly.
-  public async find(field: keyof MetadataSchema, value1: string | number | boolean, order?: 'asc' | 'desc', value2?: string | number | boolean) {
-    if (this._metadataSchema[field] === 'number' && typeof value1 !== 'number') {
-      logger.error(`Expected ${field} to be a number, received ${typeof value1}`);
+  public async find(conditions: Partial<IRoomListingData&typeof this._metadataSchema>) {
+    const conditionalRoomIDs: { [key: string]: string[] } = {};
 
-      return [];
-    }
+    await Promise.all(Object.keys(conditions).map(async (field) => {
+      conditionalRoomIDs[field] = [];
 
-    if (this._metadataSchema[field] === 'string' && typeof value1 !== 'string') {
-      logger.error(`Expected ${field} to be a string, received ${typeof value1}`);
-
-      return [];
-    }
-
-    if (this._metadataSchema[field] === 'boolean' && typeof value1 !== 'boolean') {
-      logger.error(`Expected ${field} to be a boolean, received ${typeof value1}`);
-
-      return [];
-    }
-
-    const roomIDs = [];
-
-    if(!value2){
-
-      if(typeof value1 === 'string'){
-        const [err, results] = await this._client.zrangebylex(`${this._roomcachesKey}:${field}`, `[${value1}`, `[${value1}\xff`);
-        if(err){
-          logger.error("ValkeyDriver: error finding rooms", err);
-        }
-        roomIDs.push(...results);
-      } else if(typeof value1 === 'number'){
-        const [err, results] = await this._client.zrangebyscore(`${this._roomcachesKey}:${field}`, value1, value1);
-        if (err) {
-          logger.error("ValkeyDriver: error finding rooms", err);
-        }
-        roomIDs.push(...results);
-      } else if(typeof value1 === 'boolean'){
-        const [err, results] = await this._client.zrangebyscore(`${this._roomcachesKey}:${field}`, value1 ? 1 : 0, value1 ? 1 : 0);
-        if (err) {
-          logger.error("ValkeyDriver: error finding rooms", err);
-        }
-        roomIDs.push(...results);
-      }
-
-    } else if(value2){
-      if (this._metadataSchema[field] === 'number' && typeof value2 !== 'number') {
-        logger.error(`Expected ${field} to be a number, received ${typeof value2}`);
-
-        return [];
-      }
-
-      if (this._metadataSchema[field] === 'string' && typeof value2 !== 'string') {
-        logger.error(`Expected ${field} to be a string, received ${typeof value2}`);
-
-        return [];
-      }
-
-      if (this._metadataSchema[field] === 'boolean' && typeof value2 !== 'boolean') {
-        logger.error(`Expected ${field} to be a boolean, received ${typeof value2}`);
-
-        return [];
-      }
-
-      if(typeof value1 === 'string'){ // this is a weird one, you can't really do a range on strings, but you can do a lexicographical range
-        const [err, results] = await this._client.zrangebylex(`${this._roomcachesKey}:${field}`, `[${value1}`, `[${value2}\xff`);
-
-        if(err){
-          logger.error("ValkeyDriver: error finding rooms", err);
-        }
-        roomIDs.push(...results);
-      } else if(typeof value1 === 'number' && typeof value2 === 'number'){
-        if(order === 'asc'){
-          const [err, results] = await this._client.zrangebyscore(
-            `${this._roomcachesKey}:${field}`,
-            value1,
-            value2
-          );
-
-          if(err){
-            logger.error("ValkeyDriver: error finding rooms", err);
+      switch(this._metadataSchema[field]){
+        case 'number':
+          if(typeof conditions[field] !== 'number'){
+            logger.error(`Expected ${field} to be a number, received ${typeof conditions[field]}`);
+            return;
           }
-          roomIDs.push(...results);
-        } else {
-          const [err, results] = await this._client.zrevrangebyscore(
-            `${this._roomcachesKey}:${field}`,
-            value2,
-            value1
-          );
+
+          var [err, results] = await this._client.zrangebyscore(`${this._roomcachesKey}:${field}`, conditions[field], conditions[field]);
 
           if(err){
             logger.error("ValkeyDriver: error finding rooms", err);
           }
 
-          roomIDs.push(...results);
-        }
-      } else if(typeof value1 === 'boolean' && typeof value2 === 'boolean'){
-        if(order === 'asc'){
-          const [err, results] = await this._client.zrangebyscore(
-            `${this._roomcachesKey}:${field}`,
-            value1 ? 1 : 0,
-            value2 ? 1 : 0
-          );
+          conditionalRoomIDs[field].push(...results);
+          break;
+        case 'string':
+          if(typeof conditions[field] !== 'string'){
+            logger.error(`Expected ${field} to be a string, received ${typeof conditions[field]}`);
+            return;
+          }
+
+          var [err, results] = await this._client.zrangebylex(`${this._roomcachesKey}:${field}`, `[${conditions[field]}`, `[${conditions[field]}\xff`);
 
           if(err){
             logger.error("ValkeyDriver: error finding rooms", err);
           }
 
-          roomIDs.push(...results);
-        } else {
-          const [err, results] = await this._client.zrevrangebyscore(
-            `${this._roomcachesKey}:${field}`,
-            value2 ? 1 : 0,
-            value1 ? 1 : 0
-          );
+          conditionalRoomIDs[field].push(...results);
+          break;
+        case 'boolean':
+          if(typeof conditions[field] !== 'boolean'){
+            logger.error(`Expected ${field} to be a boolean, received ${typeof conditions[field]}`);
+            return;
+          }
+
+          var [err, results] = await this._client.zrangebyscore(`${this._roomcachesKey}:${field}`, conditions[field] ? 1 : 0, conditions[field] ? 1 : 0);
 
           if(err){
             logger.error("ValkeyDriver: error finding rooms", err);
           }
 
-          roomIDs.push(...results);
-        }
+          conditionalRoomIDs[field].push(...results);
+          break;
       }
-    }
+    }));
+
+    // now we need to find the intersection of all of the sets of roomIDs
+    const roomIDs = Object.values(conditionalRoomIDs).reduce((acc, val) => acc.filter(x => val.includes(x)));
 
     // now we load all of the json data from the primary index
     const rooms = [];
@@ -195,10 +127,11 @@ export class ValkeyDriver implements MatchMakerDriver {
     }
 
     return rooms;
+
   }
 
   public async cleanup(processId: string){
-    const cachedRooms = await this.find('processId', processId);
+    const cachedRooms = await this.find({processId});
     debugMatchMaking("removing stale rooms by processId %s (%s rooms found)", processId, cachedRooms.length);
 
     const itemsPerCommand = 500;
@@ -227,8 +160,8 @@ export class ValkeyDriver implements MatchMakerDriver {
     }
   }
 
-  public findOne(field: keyof MetadataSchema, value1: string | number | boolean) {
-    return this.find(field, value1)[0];
+  public findOne(conditions: Partial<typeof this._metadataSchema>){
+    return this.find(conditions)[0];
   }
 
   public async shutdown(){
