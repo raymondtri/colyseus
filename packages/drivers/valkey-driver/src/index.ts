@@ -157,6 +157,10 @@ export class ValkeyDriver implements MatchMakerDriver {
 
       // iterate through the metadata schema and remove each field
       for (const field in this._metadataSchema){
+
+        // we don't index json fields or roomid fields
+        if(field === 'roomId' || this._metadataSchema[field] === 'json') continue;
+
         txn.zrem(`${this._roomcachesKey}:${field}`, ...rooms);
       }
 
