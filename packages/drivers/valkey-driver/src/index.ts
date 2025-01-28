@@ -27,7 +27,7 @@ export class ValkeyDriver implements MatchMakerDriver {
 
   ownProcessID?: string;
 
-  public readonly externalMatchmaker: boolean; // constrain the driver from only looking in local rooms
+  externalMatchmaker: boolean; // constrain the driver from only looking in local rooms
 
   constructor(valkeyOptions?: ValkeyDriverOptions, options?: number | string | RedisOptions | ClusterNode[], clusterOptions?: ClusterOptions) {
     this.externalMatchmaker = valkeyOptions?.externalMatchmaker || false;
@@ -69,6 +69,10 @@ export class ValkeyDriver implements MatchMakerDriver {
   // we expose the client here in case people just want to do their own raw queries, that's fine.
   public client(){
     return this._client;
+  }
+
+  public roomCachesKey(){
+    return this._roomcachesKey;
   }
 
   public async has(roomId: string) {
