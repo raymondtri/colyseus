@@ -86,7 +86,11 @@ export class Server {
     this.presence = options.presence || new LocalPresence();
     this.driver = options.driver || new LocalDriver();
 
-    this.externalMatchmakerAuth = options.externalMatchmakerAuth;
+    if(options.externalMatchmakerAuth){
+      this.driver.externalMatchmaker = true;
+      this.externalMatchmakerAuth = options.externalMatchmakerAuth;
+    }
+
 
     this.greet = greet;
 
