@@ -257,16 +257,7 @@ export async function reconnect(roomId: string, clientOptions: ClientOptions = {
  * @returns Promise<SeatReservation> - A promise which contains `sessionId` and `RoomListingData`.
  */
 export async function joinById(roomId: string, clientOptions: ClientOptions = {}, authOptions?: AuthOptions) {
-  // const room = await driver.findOne({ roomId });
-
-  // TODO - Ray test this, since the local room should always be set will this allow for bypassing the remote call?
-  let room:RoomListingData;
-
-  if(rooms[roomId]){
-    room = rooms[roomId].listing;
-  } else {
-    room = await driver.findOne({ roomId });
-  }
+  const room = await driver.findOne({ roomId });
 
   if (!room) {
     throw new ServerError(ErrorCode.MATCHMAKE_INVALID_ROOM_ID, `room "${roomId}" not found`);

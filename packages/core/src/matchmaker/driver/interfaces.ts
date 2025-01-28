@@ -29,6 +29,8 @@ export interface QueryHelpers<T> {
 
 export interface MatchMakerDriver {
 
+  ownProcessId?: string;
+
   /**
    * Initialize a room cache which contains CRUD operations for room listings.
    *

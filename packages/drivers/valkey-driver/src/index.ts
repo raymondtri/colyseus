@@ -15,14 +15,21 @@ import { MetadataSchema } from './MetadataSchema';
 export type ValkeyDriverOptions = {
   roomcachesKey?: string;
   metadataSchema?: MetadataSchema;
+  localSearchOnly?: boolean;
 }
 
 export class ValkeyDriver implements MatchMakerDriver {
   private readonly _client: Redis | Cluster;
   private readonly _roomcachesKey: string;
   private readonly _metadataSchema: MetadataSchema;
+  private readonly _localSearchOnly: boolean; // constrain the driver from only looking in local rooms
+
+  private $localRooms: RoomData[] = [];
+
+  ownProcessID?: string;
 
   constructor(valkeyOptions?: ValkeyDriverOptions, options?: number | string | RedisOptions | ClusterNode[], clusterOptions?: ClusterOptions) {
+    this._localSearchOnly = valkeyOptions?.localSearchOnly || false;
     this._roomcachesKey = valkeyOptions?.roomcachesKey || 'roomcaches';
     this._metadataSchema = {
       clients: 'number',
@@ -43,8 +50,18 @@ export class ValkeyDriver implements MatchMakerDriver {
       : new Redis(options as RedisOptions);
   }
 
+  // createInstance is only called by the matchmaker on the same server as the driver
   public createInstance(initialValues: any = {}){
-    return new RoomData(initialValues, this._client, this._roomcachesKey, this._metadataSchema);
+    // it is critical to snag the process id here as we need it for other things
+    if(initialValues.processId){
+      this.ownProcessID = initialValues.processId;
+    }
+
+    const room = new RoomData(initialValues, this._client, this._roomcachesKey, this._metadataSchema);
+
+    this.$localRooms.push(room);
+
+    return this.$localRooms[this.$localRooms.length - 1];
   }
 
   // we expose the client here in case people just want to do their own raw queries, that's fine.
@@ -53,11 +70,29 @@ export class ValkeyDriver implements MatchMakerDriver {
   }
 
   public async has(roomId: string) {
+    if(this._localSearchOnly){
+      return this.$localRooms.some((room) => room.roomId === roomId);
+    }
+
     return await this._client.hexists(this._roomcachesKey, roomId) === 1;
   }
 
   // this is really just for "nice to have" functionality, since you can query the client directly.
   public async find(conditions: Partial<IRoomListingData&typeof this._metadataSchema>) {
+    if(this._localSearchOnly){
+      return this.$localRooms.filter((room) => {
+        for (const field in conditions) {
+          if (
+            conditions.hasOwnProperty(field) &&
+            room[field] !== conditions[field]
+          ) {
+            return false;
+          }
+        }
+        return true;
+      });
+    }
+
     const conditionalRoomIDs: { [key: string]: string[] } = {};
 
     await Promise.all(Object.keys(conditions).map(async (field) => {
@@ -149,6 +184,10 @@ export class ValkeyDriver implements MatchMakerDriver {
     // but I left it in
     for (let i = 0; i < cachedRooms.length; i += itemsPerCommand) {
       const rooms = cachedRooms.slice(i, i + itemsPerCommand);
+
+      if(this._localSearchOnly){
+        this.$localRooms = this.$localRooms.filter((room) => !rooms.includes(room));
+      }
 
       const txn = this._client.multi();
 
