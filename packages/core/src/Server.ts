@@ -356,7 +356,7 @@ export class Server {
         res.end();
       });
 
-    } else if (req.method === 'GET') {
+    } else if (req.method === 'GET' && !matchMaker.driver.externalMatchmaker) {
       const matchedParams = req.url.match(matchMaker.controller.allowedRoomNameChars);
       const roomName = matchedParams.length > 1 ? matchedParams[matchedParams.length - 1] : "";
 

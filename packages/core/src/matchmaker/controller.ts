@@ -11,16 +11,27 @@ import * as matchMaker from "../MatchMaker";
 export default {
   DEFAULT_CORS_HEADERS: {
     'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Authorization',
-    'Access-Control-Allow-Methods': 'OPTIONS, POST, GET',
+    'Access-Control-Allow-Methods': 'OPTIONS, POST' + matchMaker.driver.externalMatchmaker ? '' : ', GET',
     'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Max-Age': '2592000',
     // ...
   },
 
-  exposedMethods: ['joinOrCreate', 'create', 'join', 'joinById', 'reconnect'],
   allowedRoomNameChars: /([a-zA-Z_\-0-9]+)/gi,
   matchmakeRoute: 'matchmake',
+
+  get exposedMethods() {
+    const exposedMethods:string[] = []
+
+    if(matchMaker.driver.externalMatchmaker) {
+      exposedMethods.push('createRoom', 'reserveSeatFor');
+    } else {
+      exposedMethods.push('joinOrCreate', 'create', 'join', 'joinById', 'reconnect');
+    }
+
+    return exposedMethods;
+  },
 
   /**
    * You can manually change the default corsHeaders by overwriting the `getCorsHeaders()` method:
