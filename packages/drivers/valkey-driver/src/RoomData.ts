@@ -7,6 +7,7 @@ export class RoomData implements RoomListingData {
   public clients: number = 0;
   public locked: boolean = false;
   public private: boolean = false;
+  public pendingClients: number = 0;
   public maxClients: number = Infinity;
   public metadata: { [field: string]: number | string | boolean } = {};
   public name: string;
@@ -57,6 +58,7 @@ export class RoomData implements RoomListingData {
     return {
       clients: this.clients,
       createdAt: this.createdAt,
+      pendingClients: this.pendingClients,
       maxClients: this.maxClients,
       metadata: this.metadata,
       name: this.name,

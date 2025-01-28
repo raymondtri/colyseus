@@ -30,7 +30,6 @@ export interface QueryHelpers<T> {
 export interface MatchMakerDriver {
 
   ownProcessId?: string;
-  externalMatchmaker?: boolean;
 
   /**
    * Initialize a room cache which contains CRUD operations for room listings.
@@ -39,7 +38,7 @@ export interface MatchMakerDriver {
    *
    * @returns RoomData - New room cache.
    */
-  createInstance(initialValues: any): RoomListingData;
+  createInstance(initialValues: Partial<IRoomListingData>): RoomListingData;
 
   /**
    * Check if a room exists in room cache.
@@ -61,6 +60,12 @@ export interface MatchMakerDriver {
     conditions: Partial<IRoomListingData>,
     additionalProjectionFields?: any,
   ): Promise<RoomListingData[]> | RoomListingData[];
+
+  /**
+   * Clean up rooms in room cache by process id.
+   * @param processId - The process id.
+   */
+  cleanup?(processId: string): Promise<void>;
 
   /**
    * Query for a room in room cache for given conditions.
