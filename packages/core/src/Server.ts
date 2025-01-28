@@ -19,10 +19,14 @@ import { Transport } from './Transport';
 import { logger, setLogger } from './Logger';
 import { setDevMode, isDevMode } from './utils/DevMode';
 
+import { ServerError } from './errors/ServerError';
+import { ErrorCode } from './Protocol';
+
 export type ServerOptions = {
   publicAddress?: string,
   presence?: Presence,
   driver?: matchMaker.MatchMakerDriver,
+  externalMatchmakerAuth?: string,
   transport?: Transport,
   gracefullyShutdown?: boolean,
   logger?: any;
@@ -69,6 +73,8 @@ export class Server {
   protected presence: Presence;
   protected driver: matchMaker.MatchMakerDriver;
 
+  protected externalMatchmakerAuth?: string;
+
   protected port: number;
   protected greet: boolean;
 
@@ -79,6 +85,9 @@ export class Server {
 
     this.presence = options.presence || new LocalPresence();
     this.driver = options.driver || new LocalDriver();
+
+    this.externalMatchmakerAuth = options.externalMatchmakerAuth;
+
     this.greet = greet;
 
     this.attach(options);
@@ -340,7 +349,13 @@ export class Server {
 
           // check if static onAuth is implemented
           // (default implementation is just to satisfy TypeScript )
-          if (roomClass['onAuth'] !== Room['onAuth']) {
+          if(matchMaker.driver.externalMatchmaker){
+            const authHeader = req.headers['authorization'];
+            const authToken = (authHeader && authHeader.startsWith("Bearer ") && authHeader.substring(7, authHeader.length)) || undefined;
+            if(authToken !== this.externalMatchmakerAuth){
+              throw new ServerError(ErrorCode.AUTH_FAILED, "External matchmaker auth failed");
+            }
+          } else if (roomClass['onAuth'] !== Room['onAuth']) {
             const authHeader = req.headers['authorization'];
             const authToken = (authHeader && authHeader.startsWith("Bearer ") && authHeader.substring(7, authHeader.length)) || undefined;
             clientOptions['$auth'] = await roomClass['onAuth'](authToken, req);

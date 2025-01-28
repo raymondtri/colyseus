@@ -22,15 +22,11 @@ export default {
   matchmakeRoute: 'matchmake',
 
   get exposedMethods() {
-    const exposedMethods:string[] = []
-
     if(matchMaker.driver.externalMatchmaker) {
-      exposedMethods.push('createRoom', 'reserveSeatFor');
+      return ['createRoom', 'reserveSeatFor'];
     } else {
-      exposedMethods.push('joinOrCreate', 'create', 'join', 'joinById', 'reconnect');
+      return ['joinOrCreate', 'create', 'join', 'joinById', 'reconnect'];
     }
-
-    return exposedMethods;
   },
 
   /**
