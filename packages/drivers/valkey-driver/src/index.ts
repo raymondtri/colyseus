@@ -14,6 +14,7 @@ import { MetadataSchema } from './MetadataSchema';
 
 export type ValkeyDriverOptions = {
   roomcachesKey?: string;
+  processcachesKey?: string;
   metadataSchema?: MetadataSchema;
   externalMatchmaker?: boolean;
 }
@@ -21,9 +22,10 @@ export type ValkeyDriverOptions = {
 export class ValkeyDriver implements MatchMakerDriver {
   private readonly _client: Redis | Cluster;
   private readonly _roomcachesKey: string;
+  private readonly _processcachesKey: string;
   private readonly _metadataSchema: MetadataSchema;
 
-  private $localRooms: RoomData[] = [];
+  private _$localRooms: RoomData[] = [];
 
   ownProcessID?: string;
 
@@ -33,6 +35,8 @@ export class ValkeyDriver implements MatchMakerDriver {
     this.externalMatchmaker = valkeyOptions?.externalMatchmaker || false;
 
     this._roomcachesKey = valkeyOptions?.roomcachesKey || 'roomcaches';
+    this._processcachesKey = valkeyOptions?.processcachesKey || 'processcaches';
+
     this._metadataSchema = {
       clients: 'number',
       locked: 'boolean',
@@ -61,13 +65,19 @@ export class ValkeyDriver implements MatchMakerDriver {
 
     const room = new RoomData(initialValues, this._client, this._roomcachesKey, this._metadataSchema);
 
-    this.$localRooms.push(room);
+    this._$localRooms.push(room);
+
+    this._client.hincr(`${this._processcachesKey}:count`, initialValues.processId);
 
     return this.$localRooms[this.$localRooms.length - 1];
   }
 
+  get $localRooms(){
+    return this._$localRooms.filter((room) => !room.removed);
+  }
+
   // we expose the client here in case people just want to do their own raw queries, that's fine.
-  public client(){
+  get client(){
     return this._client;
   }
 
@@ -192,7 +202,7 @@ export class ValkeyDriver implements MatchMakerDriver {
       const rooms = cachedRooms.slice(i, i + itemsPerCommand);
 
       if(this.externalMatchmaker){
-        this.$localRooms = this.$localRooms.filter((room) => !rooms.includes(room));
+        this._$localRooms = this._$localRooms.filter((room) => !rooms.includes(room));
       }
 
       const txn = this._client.multi();

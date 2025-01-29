@@ -18,6 +18,7 @@ export class RoomData implements RoomListingData {
 
   #client: Redis | Cluster;
   #roomcachesKey: string;
+  #processcachesKey: string;
   #metadataSchema: MetadataSchema;
   #removed: boolean = false;
 
@@ -25,10 +26,12 @@ export class RoomData implements RoomListingData {
     initialValues: any,
     client: Redis | Cluster,
     roomcachesKey: string,
+    processcachesKey: string,
     metadataSchema: MetadataSchema
   ) {
     this.#client = client;
     this.#roomcachesKey = roomcachesKey;
+    this.#processcachesKey = processcachesKey;
     this.#metadataSchema = metadataSchema;
 
     this.createdAt = (initialValues && initialValues.createdAt)
@@ -80,14 +83,14 @@ export class RoomData implements RoomListingData {
     const txn = this.#client.multi();
     // first we set the primary cache information
     txn.hset(this.#roomcachesKey, this.roomId, JSON.stringify(this.toJSON()));
+    // then we iterate through the metadata schema and set each field
 
     // we also have another field that is needed for external matchmaking
     // this stores the number of connected clients IF the room is unlocked
     if(!this.locked && !this.private){
-      txn.zadd(`${this.#roomcachesKey}:clientsUnlockedAndPublic`, this.clients, `${this.processId}:${this.roomId}`);
+        txn.hset(`${this.#roomcachesKey}:roomsUnlockedAndPublic:${this.processId}`, this.clients, this.roomId);
     }
 
-    // then we iterate through the metadata schema and set each field
     for (const field in this.#metadataSchema){
       if(field === 'roomId'){// there is no need to build a roomId index that links to the roomId lol
         continue;
