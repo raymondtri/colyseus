@@ -12,23 +12,16 @@ import type { AuthContext } from '../Transport.js';
 export default {
   DEFAULT_CORS_HEADERS: {
     'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Authorization',
-    'Access-Control-Allow-Methods': 'OPTIONS, POST' + (matchMaker.driver && matchMaker.driver.externalMatchmaker ? '' : ', GET'),
+    'Access-Control-Allow-Methods': 'OPTIONS, POST, GET',
     'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Max-Age': '2592000',
     // ...
   },
 
+  exposedMethods: ['joinOrCreate', 'create', 'join', 'joinById', 'reconnect'],
   allowedRoomNameChars: /([a-zA-Z_\-0-9]+)/gi,
   matchmakeRoute: 'matchmake',
-
-  get exposedMethods() {
-    if(matchMaker.driver ? matchMaker.driver.externalMatchmaker : false) {
-      return ['createRoom', 'reserveSeatFor'];
-    } else {
-      return ['joinOrCreate', 'create', 'join', 'joinById', 'reconnect'];
-    }
-  },
 
   /**
    * You can manually change the default corsHeaders by overwriting the `getCorsHeaders()` method:

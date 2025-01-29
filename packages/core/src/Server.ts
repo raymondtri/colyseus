@@ -364,6 +364,11 @@ export class Server {
       matchMaker.controller.getCorsHeaders.call(undefined, req)
     );
 
+    if(matchMaker.driver.externalMatchmaker){
+      headers['Access-Control-Allow-Methods'] = 'OPTIONS, POST';
+      matchMaker.controller.exposedMethods = ['createRoom', 'reserveSeatFor'];
+    }
+
     if (req.method === 'OPTIONS') {
       res.writeHead(204, headers);
       res.end();

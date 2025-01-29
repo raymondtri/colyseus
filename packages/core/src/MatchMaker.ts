@@ -26,6 +26,8 @@ import { Type } from './utils/types.js';
 import { getHostname } from './discovery/index.js';
 import { getLockId } from './matchmaker/driver/api.js';
 
+export let driver: MatchMakerDriver;
+
 export { controller, stats, type MatchMakerDriver };
 
 export type ClientOptions = any;
@@ -44,7 +46,6 @@ const events = new EventEmitter();
 export let publicAddress: string;
 export let processId: string;
 export let presence: Presence;
-export let driver: MatchMakerDriver;
 export let selectProcessIdToCreateRoom: SelectProcessIdCallback;
 
 /**
