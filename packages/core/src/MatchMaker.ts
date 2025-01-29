@@ -173,6 +173,12 @@ export async function joinOrCreate(roomName: string, clientOptions: ClientOption
     const authData = await callOnAuth(roomName, clientOptions, authContext);
     let room: IRoomCache = await findOneRoomAvailable(roomName, clientOptions);
 
+    //
+    // TODO [?]
+    //    should we expose the "creator" auth data of the room during `onCreate()`?
+    //    it would be useful, though it could be accessed via `onJoin()` for now.
+    //
+
     if (!room) {
       const handler = getHandler(roomName);
       const filterOptions = handler.getFilterOptions(clientOptions);
@@ -749,6 +755,18 @@ export async function reserveSeatFor(room: IRoomCache, options: ClientOptions, a
 }
 
 function callOnAuth(roomName: string, clientOptions?: ClientOptions, authContext?: AuthContext) {
+
+  // TODO set up external matchmaking auth here
+  if(driver.externalMatchmaker){
+    /*
+      const authHeader = req.headers['authorization'];
+      const authToken = (authHeader && authHeader.startsWith("Bearer ") && authHeader.substring(7, authHeader.length)) || undefined;
+      if(authToken !== this.externalMatchmakerAuth){
+        throw new ServerError(ErrorCode.AUTH_FAILED, "External matchmaker auth failed");
+      }
+    */
+  }
+
   const roomClass = getRoomClass(roomName);
   return (roomClass && roomClass['onAuth'] && roomClass['onAuth'] !== Room['onAuth'])
     ? roomClass['onAuth'](authContext.token, clientOptions, authContext)

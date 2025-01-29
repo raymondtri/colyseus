@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  valkey:
+    image: valkey:8.0.2-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - valkey_data:/data
+
+volumes:
+  valkey_data:

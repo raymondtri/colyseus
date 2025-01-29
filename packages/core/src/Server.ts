@@ -19,10 +19,14 @@ import { Transport } from './Transport.js';
 import { logger, setLogger } from './Logger.js';
 import { setDevMode, isDevMode } from './utils/DevMode.js';
 
+import { ServerError } from './errors/ServerError';
+import { ErrorCode } from './Protocol';
+
 export type ServerOptions = {
   publicAddress?: string,
   presence?: Presence,
   driver?: matchMaker.MatchMakerDriver,
+  externalMatchmakerAuth?: string,
   transport?: Transport,
   gracefullyShutdown?: boolean,
   logger?: any;
@@ -75,6 +79,8 @@ export class Server {
   protected presence: Presence;
   protected driver: matchMaker.MatchMakerDriver;
 
+  protected externalMatchmakerAuth?: string;
+
   protected port: number;
   protected greet: boolean;
 
@@ -88,6 +94,13 @@ export class Server {
 
     this.presence = options.presence || new LocalPresence();
     this.driver = options.driver || new LocalDriver();
+
+    if(options.externalMatchmakerAuth){
+      this.driver.externalMatchmaker = true;
+      this.externalMatchmakerAuth = options.externalMatchmakerAuth;
+    }
+
+
     this.greet = greet;
 
     this.attach(options);
@@ -394,7 +407,7 @@ export class Server {
         res.end();
       });
 
-    } else if (req.method === 'GET') {
+    } else if (req.method === 'GET' && !matchMaker.driver.externalMatchmaker) {
       const matchedParams = req.url.match(matchMaker.controller.allowedRoomNameChars);
       const roomName = matchedParams.length > 1 ? matchedParams[matchedParams.length - 1] : "";
 
