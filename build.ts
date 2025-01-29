@@ -7,7 +7,6 @@ import ts from "typescript";
 
 import { getPackages } from '@lerna/project';
 import { filterPackages } from '@lerna/filter-packages';
-import batchPackages from '@lerna/batch-packages';
 
 import esbuild from "esbuild";
 
@@ -17,15 +16,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /**
  * Get a list of the non-private sorted packages
  */
-async function getSortedPackages(scope, ignore) {
+async function getAllPackages(scope, ignore) {
   const packages = await getPackages(__dirname);
-  const filtered = filterPackages(packages,
-    scope,
-    ignore,
-    false);
-
-  return batchPackages(filtered)
-    .reduce((arr, batch) => arr.concat(batch), []);
+  return filterPackages(packages, scope, ignore, false);
 }
 
 async function main() {
@@ -33,9 +26,9 @@ async function main() {
   // Support --scope and --ignore globs if passed in via commandline
   const argv = minimist(process.argv.slice(2));
 
-  const packages = await getSortedPackages(argv.scope, argv.ignore);
+  const packages = await getAllPackages(argv.scope, argv.ignore);
 
-  const configs = packages.map(pkg => {
+  packages.map(pkg => {
     // Absolute path to package directory
     const basePath = path.relative(__dirname, pkg.location);
 
@@ -66,9 +59,11 @@ async function main() {
       const program = ts.createProgram(entrypoints, {
         declaration: true,
         emitDeclarationOnly: true,
+        resolveJsonModule: true,
         skipLibCheck: true,
         module: ts.ModuleKind.CommonJS,
         target: ts.ScriptTarget.ES2015,
+        lib: ["lib.es2022.d.ts"],
         outDir: outdir,
         downlevelIteration: true, // (redis-driver)
         esModuleInterop: true,
@@ -98,7 +93,6 @@ async function main() {
       format: "cjs",
       sourcemap: "external",
       platform: "node",
-      watch: argv.watch,
     });
 
     // ESM output
@@ -106,16 +100,19 @@ async function main() {
       entryPoints: entrypoints,
       outdir,
       format: "esm",
+      bundle: true,
       sourcemap: "external",
       platform: "node",
       outExtension: { '.js': '.mjs', },
-      watch: argv.watch && {
-        onRebuild(err, result) {
-          if (err) { return console.error(err); }
-          // re-emit .d.ts files
-          emitTSDeclaration();
-        }
+      plugins: [{
+        name: 'add-mjs',
+        setup(build) {
+          build.onResolve({ filter: /.*/ }, (args) => {
+            if (args.importer) return { path: args.path.replace(/^\.(.*)\.js$/, '.$1.mjs'), external: true }
+          })
+        },
       },
+      ],
     });
 
     // emit .d.ts files

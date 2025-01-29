@@ -1,26 +1,28 @@
-import http from 'http';
+import http, { IncomingHttpHeaders } from 'http';
 import querystring from 'querystring';
 import uWebSockets from 'uWebSockets.js';
+import expressify, { Application } from "uwebsockets-express";
 
-import { DummyServer, ErrorCode, matchMaker, Transport, debugAndPrintError, spliceOne } from '@colyseus/core';
-import { uWebSocketClient, uWebSocketWrapper } from './uWebSocketClient';
+import { AuthContext, HttpServerMock, ErrorCode, matchMaker, getBearerToken, Transport, debugAndPrintError, spliceOne } from '@colyseus/core';
+import { uWebSocketClient, uWebSocketWrapper } from './uWebSocketClient.js';
 
 export type TransportOptions = Omit<uWebSockets.WebSocketBehavior<any>, "upgrade" | "open" | "pong" | "close" | "message">;
 
 type RawWebSocketClient = uWebSockets.WebSocket<any> & {
   url: string,
   query: string,
-  headers: {[key: string]: string},
-  connection: { remoteAddress: string },
+  context: AuthContext,
 };
 
 export class uWebSocketsTransport extends Transport {
     public app: uWebSockets.TemplatedApp;
+    public expressApp: Application;
 
     protected clients: RawWebSocketClient[] = [];
     protected clientWrappers = new WeakMap<RawWebSocketClient, uWebSocketWrapper>();
 
     private _listeningSocket: any;
+    private _originalRawSend: typeof uWebSocketClient.prototype.raw | null = null;
 
     constructor(options: TransportOptions = {}, appOptions: uWebSockets.AppOptions = {}) {
         super();
@@ -29,22 +31,29 @@ export class uWebSocketsTransport extends Transport {
             ? uWebSockets.SSLApp(appOptions)
             : uWebSockets.App(appOptions);
 
-        if (!options.maxBackpressure) {
+        this.expressApp = expressify(this.app);
+
+        if (options.maxBackpressure === undefined) {
             options.maxBackpressure = 1024 * 1024;
         }
 
-        if (!options.compression) {
+        if (options.compression === undefined) {
             options.compression = uWebSockets.DISABLED;
         }
 
-        if (!options.maxPayloadLength) {
-            options.maxPayloadLength = 1024 * 1024;
+        if (options.maxPayloadLength === undefined) {
+            options.maxPayloadLength = 4 * 1024;
+        }
+
+        if (options.sendPingsAutomatically === undefined) {
+            options.sendPingsAutomatically = true;
         }
 
         // https://github.com/colyseus/colyseus/issues/458
         // Adding a mock object for Transport.server
         if(!this.server) {
-          this.server = new DummyServer();
+          // @ts-ignore
+          this.server = new HttpServerMock();
         }
 
         this.app.ws('/*', {
@@ -61,11 +70,10 @@ export class uWebSocketsTransport extends Transport {
                     {
                         url: req.getUrl(),
                         query: req.getQuery(),
-
-                        // compatibility with @colyseus/ws-transport
-                        headers,
-                        connection: {
-                          remoteAddress: Buffer.from(res.getRemoteAddressAsText()).toString()
+                        context: {
+                          token: getBearerToken(req.getHeader('authorization')),
+                          headers,
+                          ip: Buffer.from(res.getRemoteAddressAsText()).toString(),
                         }
                     },
                     req.getHeader('sec-websocket-key'),
@@ -98,8 +106,8 @@ export class uWebSocketsTransport extends Transport {
             },
 
             message: (ws: RawWebSocketClient, message: ArrayBuffer, isBinary: boolean) => {
-                // emit 'close' on wrapper
-                this.clientWrappers.get(ws)?.emit('message', Buffer.from(message.slice(0)));
+                // emit 'message' on wrapper
+                this.clientWrappers.get(ws)?.emit('message', Buffer.from(message));
             },
 
         });
@@ -111,6 +119,7 @@ export class uWebSocketsTransport extends Transport {
         const callback = (listeningSocket: any) => {
           this._listeningSocket = listeningSocket;
           listeningListener?.();
+          // @ts-ignore
           this.server.emit("listening"); // Mocking Transport.server behaviour, https://github.com/colyseus/colyseus/issues/458
         };
 
@@ -128,15 +137,23 @@ export class uWebSocketsTransport extends Transport {
     public shutdown() {
         if (this._listeningSocket) {
           uWebSockets.us_listen_socket_close(this._listeningSocket);
+          // @ts-ignore
           this.server.emit("close"); // Mocking Transport.server behaviour, https://github.com/colyseus/colyseus/issues/458
         }
     }
 
     public simulateLatency(milliseconds: number) {
-        const originalRawSend = uWebSocketClient.prototype.raw;
-        uWebSocketClient.prototype.raw = function() {
-          setTimeout(() => originalRawSend.apply(this, arguments), milliseconds);
+        if (this._originalRawSend == null) {
+            this._originalRawSend = uWebSocketClient.prototype.raw;
         }
+
+        const originalRawSend = this._originalRawSend;
+        uWebSocketClient.prototype.raw = milliseconds <= Number.EPSILON ? originalRawSend : function (...args: any[]) {
+            // copy buffer
+            let [buf, ...rest] = args;
+            buf = Array.from(buf);
+            setTimeout(() => originalRawSend.apply(this, [buf, ...rest]), milliseconds);
+        };
     }
 
     protected async onConnection(rawClient: RawWebSocketClient) {
@@ -153,7 +170,7 @@ export class uWebSocketsTransport extends Transport {
         const processAndRoomId = url.match(/\/[a-zA-Z0-9_\-]+\/([a-zA-Z0-9_\-]+)$/);
         const roomId = processAndRoomId && processAndRoomId[1];
 
-        const room = matchMaker.getRoomById(roomId);
+        const room = matchMaker.getLocalRoomById(roomId);
         const client = new uWebSocketClient(sessionId, wrapper);
 
         //
@@ -165,13 +182,13 @@ export class uWebSocketsTransport extends Transport {
                 throw new Error('seat reservation expired.');
             }
 
-            await room._onJoin(client, rawClient as unknown as http.IncomingMessage);
+            await room._onJoin(client, rawClient.context);
 
         } catch (e) {
             debugAndPrintError(e);
 
             // send error code to client then terminate
-            client.error(e.code, e.message, () => rawClient.close());
+            client.error(e.code, e.message, () => client.leave());
         }
     }
 
@@ -202,8 +219,10 @@ export class uWebSocketsTransport extends Transport {
             // skip if aborted
             if (res.aborted) { return; }
 
-            res.writeStatus("406 Not Acceptable");
-            res.end(JSON.stringify(error));
+            res.cork(() => {
+              res.writeStatus("406 Not Acceptable");
+              res.end(JSON.stringify(error));
+            });
         }
 
         const onAborted = (res: uWebSockets.HttpResponse) => {
@@ -225,7 +244,7 @@ export class uWebSocketsTransport extends Transport {
             res.onAborted(() => onAborted(res));
 
             // do not accept matchmaking requests if already shutting down
-            if (matchMaker.isGracefullyShuttingDown) {
+            if (matchMaker.state === matchMaker.MatchMakerState.SHUTTING_DOWN) {
               return res.close();
             }
 
@@ -235,6 +254,10 @@ export class uWebSocketsTransport extends Transport {
             const url = req.getUrl();
             const matchedParams = url.match(allowedRoomNameChars);
             const matchmakeIndex = matchedParams.indexOf(matchmakeRoute);
+
+            // cache all headers
+            const headers: IncomingHttpHeaders = {};
+            req.forEach((key, value) => headers[key] = value);
 
             // read json body
             this.readJson(res, async (clientOptions) => {
@@ -246,10 +269,22 @@ export class uWebSocketsTransport extends Transport {
                     const method = matchedParams[matchmakeIndex + 1];
                     const roomName = matchedParams[matchmakeIndex + 2] || '';
 
-                    const response = await matchMaker.controller.invokeMethod(method, roomName, clientOptions);
+                    const response = await matchMaker.controller.invokeMethod(
+                      method,
+                      roomName,
+                      clientOptions,
+                      {
+                        token: getBearerToken(req.getHeader('authorization')),
+                        headers,
+                        ip: headers['x-real-ip'] ?? Buffer.from(res.getRemoteAddressAsText()).toString()
+                      }
+                    );
+
                     if (!res.aborted) {
-                      res.writeStatus("200 OK");
-                      res.end(JSON.stringify(response));
+                      res.cork(() => {
+                        res.writeStatus("200 OK");
+                        res.end(JSON.stringify(response));
+                      });
                     }
 
                 } catch (e) {
@@ -281,8 +316,10 @@ export class uWebSocketsTransport extends Transport {
             try {
                 const response = await matchMaker.controller.getAvailableRooms(roomName || '')
                 if (!res.aborted) {
-                  res.writeStatus("200 OK");
-                  res.end(JSON.stringify(response));
+                  res.cork(() => {
+                    res.writeStatus("200 OK");
+                    res.end(JSON.stringify(response));
+                  });
                 }
 
             } catch (e) {

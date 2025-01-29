@@ -1,15 +1,22 @@
-import { JwtPayload, Jwt } from "jsonwebtoken";
 import { Request } from 'express-jwt';
 
-import { JsonWebToken } from "./JsonWebToken";
-import { auth } from './auth';
-import { OAuthCallback, oauth } from './oauth';
+import { JWT, JwtPayload, Jwt } from './JWT.js';
+import { auth, AuthSettings, RegisterWithEmailAndPasswordCallback, FindUserByEmailCallback, ParseTokenCallback, GenerateTokenCallback, HashPasswordCallback,} from './auth';
+
+import { OAuthProviderCallback } from './oauth.js';
+import { Hash } from './Hash.js';
 
 export type {
-  Request,
-  JwtPayload,
-  Jwt,
-  OAuthCallback,
+  Request, JwtPayload, Jwt,
+
+  AuthSettings,
+  RegisterWithEmailAndPasswordCallback,
+  FindUserByEmailCallback,
+  ParseTokenCallback,
+  GenerateTokenCallback,
+  HashPasswordCallback,
+
+  OAuthProviderCallback,
 };
 
-export { JsonWebToken, auth, oauth, };
+export { Hash, JWT, auth, };

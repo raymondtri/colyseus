@@ -1,13 +1,15 @@
 import assert from "assert";
-import { Presence } from "../src";
-import { timeout, PRESENCE_IMPLEMENTATIONS } from "./utils";
+import { LocalPresence, Presence, RedisPresence } from "../src";
+import { timeout } from "./utils";
+
+const PRESENCE_IMPLEMENTATIONS = [LocalPresence, RedisPresence];
 
 describe("Presence", () => {
 
   for (let i = 0; i < PRESENCE_IMPLEMENTATIONS.length; i++) {
     let presence: Presence;
 
-    describe((PRESENCE_IMPLEMENTATIONS[i]).constructor.name, () => {
+    describe(`Presence:${(PRESENCE_IMPLEMENTATIONS[i]).name}`, () => {
       beforeEach(() => presence = new PRESENCE_IMPLEMENTATIONS[i]())
       afterEach(() => presence.shutdown());
 
@@ -121,6 +123,15 @@ describe("Presence", () => {
         assert.ok(true);
       });
 
+      it("unsubscribe from non-existing callback", async () => {
+        let callCount = 0;
+        presence.subscribe("topic", (_) => callCount++);
+        presence.unsubscribe("topic", function() {});
+        presence.publish("topic", "hello world!");
+        await timeout(10);
+        assert.strictEqual(1, callCount);
+      });
+
       it("exists", async () => {
         await presence.subscribe("exists1", () => {});
         assert.equal(true, await presence.exists("exists1"));
@@ -203,9 +214,13 @@ describe("Presence", () => {
         assert.equal("3", await presence.hget("hash", "three"));
         assert.ok(!(await presence.hget("hash", "four")));
 
-        await presence.hdel("hash", "two");
+        const hdelSuccess = await presence.hdel("hash", "two");
+        assert.equal(true, hdelSuccess);
         assert.equal(2, await presence.hlen("hash"));
         assert.ok(!(await presence.hget("hash", "two")));
+
+        const hdelFailure = await presence.hdel("none", "none");
+        assert.equal(false, hdelFailure);
       });
 
       it("incr", async () => {

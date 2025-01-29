@@ -3,10 +3,10 @@
 ## Working on Colyseus source files
 
 - Clone the repository: `git clone git@github.com:colyseus/colyseus.git`
-- Checkout `engines` on the root package.json, ensure you use the correct node, npm version 
-- Install its dependencies: `npm install`
-- Build packages: `npm run build` (rebuild after any code change & before testing)
-- To run the test suite: `npm test`
+- Make sure to use Node.js LTS version
+- Colyseus uses `pnpm` as package manager. Install dependencies with `pnpm install`.
+- Build packages: `pnpm build` (rebuild after any code change & before testing)
+- To run the test suite: `pnpm test`
 
 Observations:
 
@@ -14,11 +14,15 @@ Observations:
 - We use [Lerna](https://github.com/lerna/lerna) for managing the multiple packages.
 - Packages that have a `"build"` script are not going to be built with `rollup` (e.g. @colyseus/monitor)
 
+Publishing:
+
+For publishing the packages, run `pnpm -r publish`
+
 ---
 
 ## **Reporting an issue**
 
-- **Do not open up a GitHub issue if the bug is a security vulnerability in Colyseus**, and instead send us an email at [endel@lucidsight.com](endel@lucidsight.com).
+- **Do not open up a GitHub issue if the bug is a security vulnerability in Colyseus**, and instead send us an email at [endel@colyseus.io](endel@colyseus.io).
 - **Ensure the issue was not already reported** by searching on GitHub under [Issues](https://github.com/colyseus/colyseus/issues).
 - If you're unable to find an open issue addressing the problem, [open a new one](https://github.com/colyseus/colyseus/issues/new). Be sure to include a **title and clear description**, as much relevant information as possible, and a **code sample** or an **executable test case** demonstrating the expected behavior that is not occurring.
 

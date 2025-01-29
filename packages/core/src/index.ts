@@ -1,35 +1,51 @@
-import Clock, { Delayed } from '@gamestdio/timer';
+import Clock, { Delayed } from '@colyseus/timer';
 
 // Core classes
-export { Server, ServerOptions } from './Server';
-export { Room, RoomInternalState } from './Room';
-export { Protocol, ErrorCode, getMessageBytes } from './Protocol';
-export { RegisteredHandler } from './matchmaker/RegisteredHandler';
-export { ServerError } from './errors/ServerError';
+export { Server, type ServerOptions } from './Server.js';
+export { Room, RoomInternalState } from './Room.js';
+export { Protocol, ErrorCode, getMessageBytes } from './Protocol.js';
+export { RegisteredHandler } from './matchmaker/RegisteredHandler.js';
+export { ServerError } from './errors/ServerError.js';
+
+export {
+  RoomException,
+  OnCreateException,
+  OnAuthException,
+  OnJoinException,
+  OnLeaveException,
+  OnDisposeException,
+  OnMessageException,
+  SimulationIntervalException,
+  TimedEventException,
+} from './errors/RoomExceptions';
 
 // MatchMaker
-import * as matchMaker from './MatchMaker';
+import * as matchMaker from './MatchMaker.js';
 export { matchMaker };
-export { updateLobby, subscribeLobby } from './matchmaker/Lobby';
+export { updateLobby, subscribeLobby } from './matchmaker/Lobby.js';
 
 // Driver
-export * from './matchmaker/driver';
+export * from './matchmaker/driver/local/LocalDriver.js';
 
 // Transport
-export { Client, ClientState, ClientArray, Transport, ISendOptions } from './Transport';
+export { type Client, type ClientPrivate, type AuthContext, ClientState, ClientArray, Transport, type ISendOptions } from './Transport.js';
 
 // Presence
-export { Presence } from './presence/Presence';
-export { LocalPresence } from './presence/LocalPresence';
+export { type Presence } from './presence/Presence.js';
+export { LocalPresence } from './presence/LocalPresence.js';
 
 // Serializers
-export { Serializer } from './serializer/Serializer';
-export { SchemaSerializer } from './serializer/SchemaSerializer';
+export { type Serializer } from './serializer/Serializer.js';
+export { SchemaSerializer } from './serializer/SchemaSerializer.js';
+export { SchemaSerializerDebug } from './serializer/SchemaSerializerDebug.js';
 
 // Utilities
 export { Clock, Delayed };
-export { generateId, Deferred, DummyServer, spliceOne } from './utils/Utils';
-export { isDevMode } from './utils/DevMode';
+export { generateId, Deferred, HttpServerMock, spliceOne, getBearerToken } from './utils/Utils.js';
+export { isDevMode } from './utils/DevMode.js';
+
+// IPC
+export { subscribeIPC, requestFromIPC } from './IPC.js';
 
 // Debug
 export {
@@ -44,8 +60,8 @@ export {
 } from './Debug';
 
 // Default rooms
-export { LobbyRoom } from './rooms/LobbyRoom';
-export { RelayRoom } from './rooms/RelayRoom';
+export { LobbyRoom } from './rooms/LobbyRoom.js';
+export { RelayRoom } from './rooms/RelayRoom.js';
 
 // Abstract logging support
-export { logger } from './Logger'
+export { logger } from './Logger.js';

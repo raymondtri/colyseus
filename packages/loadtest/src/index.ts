@@ -23,6 +23,7 @@ export type Options = {
     retryFailed: number,
     output: string,
     requestJoinOptions?: RequestJoinOperations,
+    clientId: number,
 };
 
 export type MainCallback = (options: Options) => Promise<void>;
@@ -73,7 +74,7 @@ Options:
     [--project]: specify a tsconfig.json file path
     [--reestablishAllDelay]: delay for closing and re-establishing all connections (in milliseconds)
     [--retryFailed]: delay to retry failed connections (in milliseconds)
-    [--output]: specify an output file (default to loadtest.log)
+    [--output]: specify an output file for output logs
 
 Example:
     colyseus-loadtest example/bot.ts --endpoint ws://localhost:2567 --room state_handler`);
@@ -92,7 +93,8 @@ Example:
         logLevel: argv.logLevel?.toLowerCase() || "all", // TODO: not being used atm
         reestablishAllDelay: argv.reestablishAllDelay || 0,
         retryFailed: argv.retryFailed || 0,
-        output: path.resolve(argv.output || "loadtest.log"),
+        output: argv.output && path.resolve(argv.output),
+        clientId: 0,
     }
 
     if (!main) {
@@ -247,11 +249,16 @@ Example:
     screen.append(networkingBox);
     screen.render();
 
+    const debug = console.debug;
     const log = console.log;
     const warn = console.warn;
     const info = console.info;
     const error = console.error;
 
+    console.debug = function(...args) {
+        logBox.content = `{grey-fg}${args.map(arg => util.inspect(arg)).join(" ")}{/grey-fg}\n${logBox.content}`;
+        screen.render();
+    };
     console.log = function(...args) {
         logBox.content = args.map(arg => util.inspect(arg)).join(" ") + "\n" + logBox.content;
         screen.render();
@@ -290,7 +297,9 @@ Example:
         await logWriter.write(`Finished. Summary:
     Successful connections: ${totalStats.connected}
     Failed connections: ${totalStats.failed}
-    Total errors: ${totalStats.errors}`, true /* closing */)
+    Total errors: ${totalStats.errors}
+    Logs:
+    ${logBox.content}`, true /* closing */)
 
         process.exit(hasError ? 1 : 0);
     }
@@ -390,7 +399,7 @@ Example:
 
     async function connect(main: MainCallback, i: number) {
         try {
-            await main(options);
+            await main({ ...options, clientId: i });
         } catch (e) {
             handleError(e);
         }
@@ -460,9 +469,23 @@ Example:
         return room;
     }
 
+    const _originalCreate = Client.prototype.create;
+    Client.prototype.create = async function(this: Client) {
+        const room = await _originalCreate.apply(this, arguments);
+        handleClientJoin(room);
+        return room;
+    }
+
     const _originalJoin = Client.prototype.join;
     Client.prototype.join = async function(this: Client) {
         const room = await _originalJoin.apply(this, arguments);
+        handleClientJoin(room);
+        return room;
+    }
+
+    const _originalJoinById = Client.prototype.joinById;
+    Client.prototype.joinById = async function(this: Client) {
+        const room = await _originalJoinById.apply(this, arguments);
         handleClientJoin(room);
         return room;
     }

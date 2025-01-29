@@ -1,5 +1,5 @@
 import Redis, { Cluster, ClusterNode, ClusterOptions, RedisOptions } from 'ioredis';
-import { Presence } from '@colyseus/core';
+import { Presence, spliceOne } from '@colyseus/core';
 
 type Callback = (...args: any[]) => void;
 
@@ -45,7 +45,7 @@ export class RedisPresence implements Presence {
 
         if (callback) {
           const index = topicCallbacks.indexOf(callback);
-          topicCallbacks.splice(index, 1);
+          spliceOne(topicCallbacks, index);
 
         } else {
           this.subscriptions[topic] = [];
@@ -79,6 +79,11 @@ export class RedisPresence implements Presence {
     public async setex(key: string, value: string, seconds: number) {
       return new Promise((resolve) =>
         this.pub.setex(key, seconds, value, resolve));
+    }
+
+    public async expire(key: string, seconds: number) {
+      return new Promise((resolve) =>
+        this.pub.expire(key, seconds, resolve));
     }
 
     public async get(key: string) {
@@ -135,6 +140,18 @@ export class RedisPresence implements Presence {
         });
     }
 
+    public async hincrbyex(key: string, field: string, value: number, expireInSeconds: number) {
+        return new Promise<number>((resolve, reject) => {
+          this.pub.multi()
+            .hincrby(key, field, value)
+            .expire(key, expireInSeconds)
+            .exec((err, results) => {
+              if (err) return reject(err);
+              resolve(results[0][1] as number);
+            });
+        });
+    }
+
     public async hget(key: string, field: string) {
         return await this.pub.hget(key, field);
     }
@@ -144,7 +161,7 @@ export class RedisPresence implements Presence {
     }
 
     public async hdel(key: string, field: string) {
-        return await this.pub.hdel(key, field);
+        return (await this.pub.hdel(key, field)) > 0;
     }
 
     public async hlen(key: string): Promise<number> {
@@ -157,6 +174,30 @@ export class RedisPresence implements Presence {
 
     public async decr(key: string): Promise<number> {
         return await this.pub.decr(key);
+    }
+
+    public async llen(key: string): Promise<number> {
+      return await this.pub.llen(key);
+    }
+
+    public async rpush(key: string, value: string): Promise<number> {
+      return await this.pub.rpush(key, value);
+    }
+
+    public async lpush(key: string, value: string): Promise<number> {
+      return await this.pub.lpush(key, value);
+    }
+
+    public async rpop(key: string): Promise<string> {
+      return await this.pub.rpop(key);
+    }
+
+    public async lpop(key: string): Promise<string> {
+      return await this.pub.lpop(key);
+    }
+
+    public async brpop(...args: [...keys: string[], timeoutInSeconds: number]): Promise<[string, string] | null> {
+      return await this.pub.brpop.apply(this.pub, args);
     }
 
     public shutdown() {

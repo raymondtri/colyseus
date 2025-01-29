@@ -1,12 +1,7 @@
 import assert from "assert";
-import sinon from "sinon";
 import * as Colyseus from "colyseus.js";
-
-import { matchMaker, Room, Client, Server, ErrorCode } from "../../src";
-import { DummyRoom, DRIVERS, timeout, Room3Clients, PRESENCE_IMPLEMENTATIONS, Room2Clients, Room2ClientsExplicitLock } from "./../utils";
-
-import { LobbyRoom } from "../../src";
-
+import { matchMaker, Server, LobbyRoom } from "../../src";
+import { DummyRoom, DRIVERS, timeout, PRESENCE_IMPLEMENTATIONS } from "./../utils";
 
 describe("LobbyRoom: Integration", () => {
   for (let i = 0; i < PRESENCE_IMPLEMENTATIONS.length; i++) {
@@ -29,12 +24,14 @@ describe("LobbyRoom: Integration", () => {
 
         before(async () => {
           // listen for testing
+          await matchMaker.setup(presence, driver);
           await server.listen(TEST_PORT);
         });
 
         beforeEach(async () => {
           // setup matchmaker
-          matchMaker.setup(presence, driver)
+          await matchMaker.setup(presence, driver);
+          await matchMaker.accept();
 
           // define a room
           matchMaker.defineRoomType("lobby", LobbyRoom);
@@ -43,7 +40,7 @@ describe("LobbyRoom: Integration", () => {
         });
 
         after(async () => await server.gracefullyShutdown(false));
-        afterEach(async () => await matchMaker.gracefullyShutdown())
+        afterEach(async () => await matchMaker.gracefullyShutdown());
 
         it("should receive full list of rooms when connecting.", async () => {
           await client.create('dummy_1');
@@ -56,8 +53,8 @@ describe("LobbyRoom: Integration", () => {
             onMessageCalled = true;
             assert.equal(2, rooms.length);
           });
-          lobby.onMessage("+", () => {});
-          lobby.onMessage("-", () => {});
+          lobby.onMessage("+", () => { });
+          lobby.onMessage("-", () => { });
 
           await timeout(50);
 
@@ -78,10 +75,10 @@ describe("LobbyRoom: Integration", () => {
           lobby.onMessage("+", ([roomId, data]) => {
             onAddCalled++;
             assert.equal("string", typeof (roomId));
-            assert.equal("dummy_1", data.name)
+            assert.equal("dummy_1", data.name);
           });
 
-          lobby.onMessage("-", () => {});
+          lobby.onMessage("-", () => { });
 
           await client.create('dummy_1');
           await client.create('dummy_1');
@@ -105,7 +102,7 @@ describe("LobbyRoom: Integration", () => {
             onMessageCalled = true;
             assert.equal(0, rooms.length);
           });
-          lobby.onMessage("+", () => {});
+          lobby.onMessage("+", () => { });
 
           await client.create('dummy_1');
           const dummy_1 = await client.create('dummy_1');
@@ -123,6 +120,57 @@ describe("LobbyRoom: Integration", () => {
           assert.equal(1, onRemoveCalled);
         });
 
+        it("should update rooms field when room marked as private", async () => {
+          const serverLobby = await matchMaker.createRoom('lobby', {});
+          const serverLobbyRoom = await matchMaker.getLocalRoomById(serverLobby.roomId) as LobbyRoom;
+          const lobby = await client.join("lobby");
+
+          let allRooms: Colyseus.RoomAvailable[] = [];
+
+          lobby.onMessage("rooms", (rooms) => {
+            allRooms = rooms;
+          });
+
+          lobby.onMessage("+", ([roomId, room]) => {
+            const roomIndex = allRooms.findIndex((room) => room.roomId === roomId);
+            if (roomIndex !== -1) {
+              allRooms[roomIndex] = room;
+
+            } else {
+              allRooms.push(room);
+            }
+          });
+
+          lobby.onMessage("-", (roomId) => {
+            allRooms = allRooms.filter((room) => room.roomId !== roomId);
+          });
+
+          await client.create('dummy_1');
+          const dummy_1 = await client.create('dummy_1');
+          const dummyRoomId = dummy_1.roomId;
+
+          assert.equal(serverLobbyRoom.rooms.length, 2);
+          assert.equal(allRooms.length, 2);
+          assert.equal((await client.getAvailableRooms('dummy_1')).length, 2);
+
+          await matchMaker.remoteRoomCall(dummyRoomId, 'setPrivate');
+
+          await timeout(50);
+
+          assert.equal(serverLobbyRoom.rooms.length, 1);
+          assert.equal(allRooms.length, 1);
+          assert.equal((await client.getAvailableRooms('dummy_1')).length, 1);
+
+          await matchMaker.remoteRoomCall(dummyRoomId, 'setPrivate', [false]);
+
+          await timeout(50);
+
+          assert.equal(serverLobbyRoom.rooms.length, 2);
+          assert.equal(allRooms.length, 2);
+          assert.equal((await client.getAvailableRooms('dummy_1')).length, 2);
+
+          await lobby.leave();
+        });
       });
 
     }

@@ -2,22 +2,20 @@
 
 // "bun-types" is currently conflicting with "ws" types.
 // @ts-ignore
-import { ServerWebSocket, WebSocketHandler } from "bun";
+import { ServerWebSocket, WebSocketHandler } from 'bun';
 
-import http from 'http';
-import bunExpress from "bun-serve-express";
+import type http from 'http';
+import bunExpress from 'bun-serve-express';
+import type { Application, Request, Response } from "express";
 
-import { DummyServer, ErrorCode, matchMaker, Transport, debugAndPrintError, spliceOne, ServerError } from '@colyseus/core';
-import { WebSocketClient, WebSocketWrapper } from './WebSocketClient';
-import { Application, Request, Response } from "express";
+import { HttpServerMock, matchMaker, Transport, debugAndPrintError, spliceOne, ServerError, getBearerToken } from '@colyseus/core';
+import { WebSocketClient, WebSocketWrapper } from './WebSocketClient.js';
 
 export type TransportOptions = Partial<Omit<WebSocketHandler, "message" | "open" | "drain" | "close" | "ping" | "pong">>;
 
 interface WebSocketData {
   url: URL;
-  // query: string,
-  // headers: { [key: string]: string },
-  // connection: { remoteAddress: string },
+  headers: any;
 }
 
 export class BunWebSockets extends Transport {
@@ -27,6 +25,7 @@ export class BunWebSockets extends Transport {
   protected clientWrappers = new WeakMap<ServerWebSocket<WebSocketData>, WebSocketWrapper>();
 
   private _listening: any;
+  private _originalRawSend: typeof WebSocketClient.prototype.raw | null = null;
 
   constructor(private options: TransportOptions = {}) {
     super();
@@ -42,7 +41,6 @@ export class BunWebSockets extends Transport {
         },
 
         message(ws, message) {
-          // this.clientWrappers.get(ws)?.emit('message', Buffer.from(message.slice(0)));
           self.clientWrappers.get(ws)?.emit('message', message);
         },
 
@@ -63,7 +61,8 @@ export class BunWebSockets extends Transport {
 
     // Adding a mock object for Transport.server
     if (!this.server) {
-      this.server = new DummyServer();
+      // @ts-ignore
+      this.server = new HttpServerMock();
     }
   }
 
@@ -98,10 +97,16 @@ export class BunWebSockets extends Transport {
   }
 
   public simulateLatency(milliseconds: number) {
-    const originalRawSend = WebSocketClient.prototype.raw;
-    WebSocketClient.prototype.raw = function () {
-      setTimeout(() => originalRawSend.apply(this, arguments), milliseconds);
+    if (this._originalRawSend == null) {
+      this._originalRawSend = WebSocketClient.prototype.raw;
     }
+
+    const originalRawSend = this._originalRawSend;
+    WebSocketClient.prototype.raw = milliseconds <= Number.EPSILON ? originalRawSend : function (...args: any[]) {
+      let [buf, ...rest] = args;
+      buf = Array.from(buf);
+      setTimeout(() => originalRawSend.apply(this, [buf, ...rest]), milliseconds);
+    };
   }
 
   protected async onConnection(rawClient: ServerWebSocket<WebSocketData>) {
@@ -116,7 +121,7 @@ export class BunWebSockets extends Transport {
     const processAndRoomId = parsedURL.pathname.match(/\/[a-zA-Z0-9_\-]+\/([a-zA-Z0-9_\-]+)$/);
     const roomId = processAndRoomId && processAndRoomId[1];
 
-    const room = matchMaker.getRoomById(roomId);
+    const room = matchMaker.getLocalRoomById(roomId);
     const client = new WebSocketClient(sessionId, wrapper);
 
     //
@@ -128,7 +133,11 @@ export class BunWebSockets extends Transport {
         throw new Error('seat reservation expired.');
       }
 
-      await room._onJoin(client, rawClient as unknown as http.IncomingMessage);
+      await room._onJoin(client, {
+        token: getBearerToken(rawClient.data.headers['authorization']),
+        headers: rawClient.data.headers,
+        ip: rawClient.data.headers['x-real-ip'] ?? rawClient.remoteAddress,
+      });
 
     } catch (e) {
       debugAndPrintError(e);
@@ -138,43 +147,72 @@ export class BunWebSockets extends Transport {
     }
   }
 
-  protected async handleMatchMakeRequest (req: Request, res: Response) {
+  protected async handleMatchMakeRequest(req: Request, res: Response) {
+    const writeHeaders = (req: Request, res: Response) => {
+      if (res.destroyed) return;
+
+      res.set(Object.assign(
+        {},
+        matchMaker.controller.DEFAULT_CORS_HEADERS,
+        matchMaker.controller.getCorsHeaders.call(undefined, req)
+      ));
+
+      return true;
+    };
+
     try {
       switch (req.method) {
         case 'OPTIONS': {
-          res.set(Object.assign(
-            {},
-            matchMaker.controller.DEFAULT_CORS_HEADERS,
-            matchMaker.controller.getCorsHeaders.call(undefined, req)
-          ));
+          writeHeaders(req, res);
           res.status(200).end();
           break;
         }
 
         case 'GET': {
           const matchedParams = req.path.match(matchMaker.controller.allowedRoomNameChars);
-          const roomName = matchedParams.length > 1 ? matchedParams[matchedParams.length - 1] : "";
+          const roomName = (matchedParams && matchedParams.length > 1)
+            ? matchedParams[matchedParams.length - 1]
+            : "";
+
+          writeHeaders(req, res);
           res.json(await matchMaker.controller.getAvailableRooms(roomName || ''));
           break;
         }
 
         case 'POST': {
           // do not accept matchmaking requests if already shutting down
-          if (matchMaker.isGracefullyShuttingDown) {
+          if (matchMaker.state === matchMaker.MatchMakerState.SHUTTING_DOWN) {
             throw new ServerError(503, "server is shutting down");
           }
 
           const matchedParams = req.path.match(matchMaker.controller.allowedRoomNameChars);
           const matchmakeIndex = matchedParams.indexOf(matchMaker.controller.matchmakeRoute);
-          const clientOptions = req.body; // Bun.readableStreamToJSON(req.body);
+          let clientOptions = req.body; // Bun.readableStreamToJSON(req.body);
 
-          if (clientOptions === undefined) {
+          if (clientOptions == null) {
             throw new ServerError(500, "invalid JSON input");
+          }
+
+          if (typeof clientOptions === 'string' && clientOptions.length > 2) {
+            clientOptions = JSON.parse(clientOptions);
+          } else if (typeof clientOptions !== 'object') {
+            clientOptions = {};
           }
 
           const method = matchedParams[matchmakeIndex + 1];
           const roomName = matchedParams[matchmakeIndex + 2] || '';
-          res.json(await matchMaker.controller.invokeMethod(method, roomName, clientOptions));
+
+          writeHeaders(req, res);
+          res.json(await matchMaker.controller.invokeMethod(
+            method,
+            roomName,
+            clientOptions,
+            {
+              token: getBearerToken(req.headers['authorization']),
+              headers: req.headers,
+              ip: req.headers['x-real-ip'] ?? req.ips,
+            },
+          ));
           break;
         }
 
@@ -182,16 +220,10 @@ export class BunWebSockets extends Transport {
       }
 
     } catch (e) {
-      res
-        .set(Object.assign(
-          {},
-          matchMaker.controller.DEFAULT_CORS_HEADERS,
-          matchMaker.controller.getCorsHeaders.call(undefined, req)
-        ))
-        .status(500)
+      writeHeaders(req, res);
+      res.status(500)
         .json({ code: e.code, error: e.message });
     }
-
   }
 
 }

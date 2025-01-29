@@ -1,11 +1,17 @@
 {
   "name": "@colyseus/testing",
-  "version": "0.15.2",
+  "version": "0.16.0-preview.7",
   "description": "Testing tools for Colyseus",
   "input": "./src/index.ts",
   "main": "./build/index.js",
   "module": "./build/index.mjs",
   "typings": "./build/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./build/index.mjs",
+      "require": "./build/index.js"
+    }
+  },
   "scripts": {
     "test": "TS_NODE_PROJECT=../../tsconfig/tsconfig.test.json mocha --require tsx test/**Test.ts test/**/**Test.ts --exit --timeout 15000",
     "tslint": "tslint --project . --config ../../tslint.json"
@@ -23,16 +29,21 @@
   },
   "homepage": "https://colyseus.io/",
   "engines": {
-    "node": ">= 14.x"
+    "node": ">= 18.x"
   },
   "dependencies": {
-    "@colyseus/tools": "^0.15.0",
-    "@colyseus/core": "^0.15.0",
-    "colyseus.js": "^0.15.0",
     "httpie": "^2.0.0-next.13"
   },
   "devDependencies": {
-    "@colyseus/ws-transport": "^0.15.0"
+    "@colyseus/core": "workspace:^",
+    "@colyseus/tools": "workspace:^",
+    "@colyseus/ws-transport": "workspace:^",
+    "colyseus.js": "^0.16.0-preview.0"
+  },
+  "peerDependencies_TODO": {
+    "@colyseus/tools": "0.16.x",
+    "@colyseus/core": "0.16.x",
+    "colyseus.js": "^0.16.x"
   },
   "publishConfig": {
     "access": "public"

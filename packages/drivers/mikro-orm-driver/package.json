@@ -6,8 +6,14 @@
   "main": "./build/index.js",
   "module": "./build/index.mjs",
   "typings": "./build/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./build/index.mjs",
+      "require": "./build/index.js"
+    }
+  },
   "dependencies": {
-    "@colyseus/core": "^0.15.0",
+    "@colyseus/core": "workspace:^",
     "@mikro-orm/core": "^4.5.4"
   },
   "author": "Endel Dreyer",

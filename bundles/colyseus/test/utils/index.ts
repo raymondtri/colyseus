@@ -1,12 +1,13 @@
 import WebSocket from "ws";
 import { EventEmitter } from "events";
 
-import { pack, unpack } from "msgpackr";
+import { pack, unpack } from "@colyseus/msgpackr";
 
-import { Server, ServerOptions, Room, matchMaker, LocalDriver, ClientState, LocalPresence, Presence, Client, Deferred, ISendOptions } from "@colyseus/core";
+import { Server, ServerOptions, Room, matchMaker, LocalDriver, ClientState, LocalPresence, Protocol, Presence, Client, Deferred, ISendOptions, getMessageBytes } from "@colyseus/core";
 import { RedisPresence } from "@colyseus/redis-presence";
 import { RedisDriver } from "@colyseus/redis-driver";
-import { MongooseDriver } from "@colyseus/mongoose-driver";
+
+// import { MongooseDriver } from "@colyseus/mongoose-driver";
 
 import { WebSocketTransport, TransportOptions } from '@colyseus/ws-transport';
 Server.prototype['getDefaultTransport'] = function (options: ServerOptions) {
@@ -17,17 +18,17 @@ Server.prototype['getDefaultTransport'] = function (options: ServerOptions) {
   });
 }
 
-export const DRIVERS = [ LocalDriver, ];
+// export const DRIVERS = [ LocalDriver, ];
 export const PRESENCE_IMPLEMENTATIONS = [ LocalPresence, ];
 
-// export const DRIVERS = [
-//   LocalDriver,
-//   RedisDriver,
-//   // MongooseDriver,
-// ];
-//
+export const DRIVERS = [
+  LocalDriver,
+  // RedisDriver,
+  // MongooseDriver,
+];
+
 // export const PRESENCE_IMPLEMENTATIONS = [
-//   LocalPresence,
+//   // LocalPresence,
 //   RedisPresence
 // ];
 
@@ -44,7 +45,7 @@ export class WebSocketClient implements Client {
   messages: any[] = [];
   _enqueuedMessages: any[] = [];
   _afterNextPatchQueue;
-  _reconnectionToken;
+  reconnectionToken;
 
   errors: any[] = [];
 
@@ -81,6 +82,17 @@ export class WebSocketClient implements Client {
       return;
     }
     this.messages.push(message);
+  }
+
+  async confirmJoinRoom(room: Room) {
+    await room._onJoin(this);
+
+    //
+    // this simulates when the client-side has sent the `Protocol.JOIN_ROOM` message
+    // (see `Room._onMessage`)
+    //
+    this.state = ClientState.JOINED;
+    delete this._enqueuedMessages;
   }
 
   error(code, message) {

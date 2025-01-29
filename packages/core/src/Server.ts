@@ -1,23 +1,23 @@
 import http, { IncomingMessage, ServerResponse } from 'http';
 import greeting from "@colyseus/greeting-banner";
 
-import { debugAndPrintError, debugMatchMaking } from './Debug';
-import * as matchMaker from './MatchMaker';
-import { RegisteredHandler } from './matchmaker/RegisteredHandler';
-import { Presence } from './presence/Presence';
+import { debugAndPrintError, debugMatchMaking } from './Debug.js';
+import * as matchMaker from './MatchMaker.js';
+import { RegisteredHandler } from './matchmaker/RegisteredHandler.js';
+import { Presence } from './presence/Presence.js';
 
-import { Room } from './Room';
-import { Type } from './types';
-import { registerGracefulShutdown } from './utils/Utils';
+import { Room } from './Room.js';
+import { Type } from './utils/types.js';
+import { getBearerToken, registerGracefulShutdown } from './utils/Utils.js';
 
-import { registerNode, unregisterNode} from './discovery';
+import { registerNode, unregisterNode} from './discovery/index.js';
 
-import { LocalPresence } from './presence/LocalPresence';
-import { LocalDriver } from './matchmaker/driver';
+import { LocalPresence } from './presence/LocalPresence.js';
+import { LocalDriver } from './matchmaker/driver/local/LocalDriver.js';
 
-import { Transport } from './Transport';
-import { logger, setLogger } from './Logger';
-import { setDevMode, isDevMode } from './utils/DevMode';
+import { Transport } from './Transport.js';
+import { logger, setLogger } from './Logger.js';
+import { setDevMode, isDevMode } from './utils/DevMode.js';
 
 import { ServerError } from './errors/ServerError';
 import { ErrorCode } from './Protocol';
@@ -30,6 +30,12 @@ export type ServerOptions = {
   transport?: Transport,
   gracefullyShutdown?: boolean,
   logger?: any;
+
+  /**
+   * Custom function to determine which process should handle room creation.
+   * Default: assign new rooms the process with least amount of rooms created
+   */
+  selectProcessIdToCreateRoom?: matchMaker.SelectProcessIdCallback;
 
   /**
    * If enabled, rooms are going to be restored in the server-side upon restart,
@@ -78,6 +84,9 @@ export class Server {
   protected port: number;
   protected greet: boolean;
 
+  //@ts-expect-error
+  private _originalRoomOnMessage: typeof Room.prototype._onMessage | null = null;
+
   constructor(options: ServerOptions = {}) {
     const { gracefullyShutdown = true, greet = true } = options;
 
@@ -100,6 +109,7 @@ export class Server {
       this.presence,
       this.driver,
       options.publicAddress,
+      options.selectProcessIdToCreateRoom,
     );
 
     if (gracefullyShutdown) {
@@ -140,6 +150,7 @@ export class Server {
     this.transport = transport;
 
     if (this.transport.server) {
+      // @ts-ignore
       this.transport.server.once('listening', () => this.registerProcessForDiscovery());
       this.attachMatchMakingRoutes(this.transport.server as http.Server);
     }
@@ -160,7 +171,7 @@ export class Server {
     // Make sure matchmaker is ready before accepting connections
     // (isDevMode: matchmaker may take extra milliseconds to restore the rooms)
     //
-    await matchMaker.onReady;
+    await matchMaker.accept();
 
     /**
      * Greetings!
@@ -170,6 +181,7 @@ export class Server {
     }
 
     return new Promise<void>((resolve, reject) => {
+      // @ts-ignore
       this.transport.server?.on('error', (err) => reject(err));
       this.transport.listen(port, hostname, backlog, (err) => {
         if (listeningListener) {
@@ -239,7 +251,7 @@ export class Server {
   }
 
   public async gracefullyShutdown(exit: boolean = true, err?: Error) {
-    if (matchMaker.isGracefullyShuttingDown) {
+    if (matchMaker.state === matchMaker.MatchMakerState.SHUTTING_DOWN) {
       return;
     }
 
@@ -249,10 +261,15 @@ export class Server {
     });
 
     try {
+      // custom "before shutdown" method
+      await this.onBeforeShutdownCallback();
+
       await matchMaker.gracefullyShutdown();
       this.transport.shutdown();
       this.presence.shutdown();
       this.driver.shutdown();
+
+      // custom "after shutdown" method
       await this.onShutdownCallback();
 
     } catch (e) {
@@ -270,18 +287,27 @@ export class Server {
    * @param milliseconds round trip latency in milliseconds.
    */
   public simulateLatency(milliseconds: number) {
-    logger.warn(`📶️❗ Colyseus latency simulation enabled → ${milliseconds}ms latency for round trip.`);
+    if (milliseconds > 0) {
+      logger.warn(`📶️❗ Colyseus latency simulation enabled → ${milliseconds}ms latency for round trip.`);
+    } else {
+      logger.warn(`📶️❗ Colyseus latency simulation disabled.`);
+    }
 
     const halfwayMS = (milliseconds / 2);
     this.transport.simulateLatency(halfwayMS);
 
+    if (this._originalRoomOnMessage == null) {
+      /* tslint:disable:no-string-literal */
+      this._originalRoomOnMessage = Room.prototype['_onMessage'];
+    }
+
+    const originalOnMessage = this._originalRoomOnMessage;
+
     /* tslint:disable:no-string-literal */
-    const _onMessage = Room.prototype['_onMessage'];
-    /* tslint:disable:no-string-literal */
-    Room.prototype['_onMessage'] = function (client, buffer) {
+    Room.prototype['_onMessage'] = milliseconds <= Number.EPSILON ? originalOnMessage : function (client, buffer) {
       // uWebSockets.js: duplicate buffer because it is cleared at native layer before the timeout.
       const cachedBuffer = Buffer.from(buffer);
-      setTimeout(() => _onMessage.call(this, client, cachedBuffer), halfwayMS);
+      setTimeout(() => originalOnMessage.call(this, client, cachedBuffer), halfwayMS);
     };
   }
 
@@ -293,11 +319,18 @@ export class Server {
     this.onShutdownCallback = callback;
   }
 
+  public onBeforeShutdown(callback: () => void | Promise<any>) {
+    this.onBeforeShutdownCallback = callback;
+  }
+
   protected getDefaultTransport(_: any): Transport {
     throw new Error("Please provide a 'transport' layer. Default transport not set.");
   }
 
   protected onShutdownCallback: () => void | Promise<any> =
+    () => Promise.resolve()
+
+  protected onBeforeShutdownCallback: () => void | Promise<any> =
     () => Promise.resolve()
 
   protected attachMatchMakingRoutes(server: http.Server) {
@@ -319,7 +352,7 @@ export class Server {
 
   protected async handleMatchMakeRequest(req: IncomingMessage, res: ServerResponse) {
     // do not accept matchmaking requests if already shutting down
-    if (matchMaker.isGracefullyShuttingDown) {
+    if (matchMaker.state === matchMaker.MatchMakerState.SHUTTING_DOWN) {
       res.writeHead(503, {});
       res.end();
       return;
@@ -349,23 +382,22 @@ export class Server {
 
         try {
           const clientOptions = JSON.parse(Buffer.concat(data).toString());
-          const roomClass = matchMaker.getRoomClass(roomName);
+          const response = await matchMaker.controller.invokeMethod(
+            method,
+            roomName,
+            clientOptions,
+            {
+              token: getBearerToken(req.headers['authorization']),
+              headers: req.headers,
+              ip: req.headers['x-real-ip'] ?? req.headers['x-forwarded-for'] ?? req.socket.remoteAddress,
+            },
+          );
 
-          // check if static onAuth is implemented
-          // (default implementation is just to satisfy TypeScript )
-          if(matchMaker.driver.externalMatchmaker){
-            const authHeader = req.headers['authorization'];
-            const authToken = (authHeader && authHeader.startsWith("Bearer ") && authHeader.substring(7, authHeader.length)) || undefined;
-            if(authToken !== this.externalMatchmakerAuth){
-              throw new ServerError(ErrorCode.AUTH_FAILED, "External matchmaker auth failed");
-            }
-          } else if (roomClass['onAuth'] !== Room['onAuth']) {
-            const authHeader = req.headers['authorization'];
-            const authToken = (authHeader && authHeader.startsWith("Bearer ") && authHeader.substring(7, authHeader.length)) || undefined;
-            clientOptions['$auth'] = await roomClass['onAuth'](authToken, req);
+          // specify protocol, if available.
+          if (this.transport.protocol !== undefined) {
+            response.protocol = this.transport.protocol;
           }
 
-          const response = await matchMaker.controller.invokeMethod(method, roomName, clientOptions);
           res.write(JSON.stringify(response));
 
         } catch (e) {

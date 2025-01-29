@@ -3,10 +3,11 @@
  * (for interoperability between different http frameworks, e.g. express, uWebSockets.js, etc)
  */
 
-import { IncomingMessage } from "http";
-import { ErrorCode } from "../Protocol";
-import { ServerError } from "../errors/ServerError";
-import * as matchMaker from "../MatchMaker";
+import { IncomingMessage } from 'http';
+import { ErrorCode } from '../Protocol.js';
+import { ServerError } from '../errors/ServerError.js';
+import * as matchMaker from '../MatchMaker.js';
+import type { AuthContext } from '../Transport.js';
 
 export default {
   DEFAULT_CORS_HEADERS: {
@@ -44,8 +45,9 @@ export default {
    *    ```
    */
   getCorsHeaders(req: IncomingMessage): { [header: string]: string } {
+    const origin = (req.headers && req.headers['origin']) || (req as any).getHeader && (req as any).getHeader('origin');
     return {
-      ['Access-Control-Allow-Origin']: req.headers['origin'],
+      ['Access-Control-Allow-Origin']: origin || "*",
     };
   },
 
@@ -63,13 +65,18 @@ export default {
     return matchMaker.query(conditions);
   },
 
-  async invokeMethod(method: string, roomName: string, clientOptions: any = {}) {
+  async invokeMethod(
+    method: string,
+    roomName: string,
+    clientOptions: matchMaker.ClientOptions = {},
+    authOptions?: AuthContext,
+  ) {
     if (this.exposedMethods.indexOf(method) === -1) {
       throw new ServerError(ErrorCode.MATCHMAKE_NO_HANDLER, `invalid method "${method}"`);
     }
 
     try {
-      return await matchMaker[method](roomName, clientOptions);
+      return await matchMaker[method](roomName, clientOptions, authOptions);
 
     } catch (e) {
       throw new ServerError(e.code || ErrorCode.MATCHMAKE_UNHANDLED, e.message);
