@@ -12,22 +12,24 @@ import {
 import { RoomData } from './RoomData';
 import { MetadataSchema } from './MetadataSchema';
 
+import { eligibleForMatchmaking, eligibleForMatchmakingCallback } from './EligibleForMatchmaking';
+
 export type ValkeyDriverOptions = {
   roomcachesKey?: string;
-  processcachesKey?: string;
   metadataSchema?: MetadataSchema;
   externalMatchmaker?: boolean;
+  eligibleForMatchmaking?: eligibleForMatchmakingCallback;
 }
 
 export class ValkeyDriver implements MatchMakerDriver {
   private readonly _client: Redis | Cluster;
   private readonly _roomcachesKey: string;
-  private readonly _processcachesKey: string;
   private readonly _metadataSchema: MetadataSchema;
+  private readonly _eligibleForMatchmaking: eligibleForMatchmakingCallback;
 
   private _$localRooms: RoomData[] = [];
 
-  ownProcessID?: string;
+  private _$ownProcessID?: string;
 
   externalMatchmaker: boolean; // constrain the driver from only looking in local rooms
 
@@ -35,7 +37,6 @@ export class ValkeyDriver implements MatchMakerDriver {
     this.externalMatchmaker = valkeyOptions?.externalMatchmaker || false;
 
     this._roomcachesKey = valkeyOptions?.roomcachesKey || 'roomcaches';
-    this._processcachesKey = valkeyOptions?.processcachesKey || 'processcaches';
 
     this._metadataSchema = {
       clients: 'number',
@@ -46,14 +47,35 @@ export class ValkeyDriver implements MatchMakerDriver {
       publicAddress: 'string',
       processId: 'string',
       roomId: 'string',
+      eligibleForMatchmaking: 'boolean',
       createdAt: 'number',
       unlisted: 'boolean',
       ...valkeyOptions?.metadataSchema
     }
 
+    if(!valkeyOptions.eligibleForMatchmaking){
+      this._eligibleForMatchmaking = eligibleForMatchmaking;
+    } else {
+      this._eligibleForMatchmaking = valkeyOptions.eligibleForMatchmaking;
+    }
+
     this._client = (Array.isArray(options))
       ? new Cluster(options, clusterOptions)
       : new Redis(options as RedisOptions);
+  }
+
+  set ownProcessID(processId: string | undefined){
+    if(processId){
+      this._client.sadd(`${this._roomcachesKey}:process`, processId);
+    } else {
+      this._client.srem(`${this._roomcachesKey}:process`, this._$ownProcessID);
+    }
+
+    this._$ownProcessID = processId;
+  }
+
+  get ownProcessID(){
+    return this._$ownProcessID;
   }
 
   // createInstance is only called by the matchmaker on the same server as the driver
@@ -63,11 +85,9 @@ export class ValkeyDriver implements MatchMakerDriver {
       this.ownProcessID = initialValues.processId;
     }
 
-    const room = new RoomData(initialValues, this._client, this._roomcachesKey, this._metadataSchema);
+    const room = new RoomData(initialValues, this._client, this._roomcachesKey, this._metadataSchema, this._eligibleForMatchmaking);
 
     this._$localRooms.push(room);
-
-    this._client.hincr(`${this._processcachesKey}:count`, initialValues.processId);
 
     return this.$localRooms[this.$localRooms.length - 1];
   }
@@ -94,7 +114,8 @@ export class ValkeyDriver implements MatchMakerDriver {
   }
 
   // this is really just for "nice to have" functionality, since you can query the client directly.
-  public async find(conditions: Partial<IRoomListingData&typeof this._metadataSchema>) {
+  // and in fact, it is recommended that you query the client directly based on your needs for matchmaking filtering
+  public async find(conditions: Partial<IRoomListingData&typeof this._metadataSchema>){
     if(this.externalMatchmaker){
       return this.$localRooms.filter((room) => {
         for (const field in conditions) {
@@ -109,84 +130,29 @@ export class ValkeyDriver implements MatchMakerDriver {
       });
     }
 
-    const conditionalRoomIDs: { [key: string]: string[] } = {};
+    const roomIDs:string[] = [];
 
-    await Promise.all(Object.keys(conditions).map(async (field) => {
-      conditionalRoomIDs[field] = [];
+    if(conditions.roomId){ // there is no need to process anything else. We can grab it directly
+      roomIDs.push(conditions.roomId);
+    } else {
+      const sets: string[] = [];
 
-      if(field === 'roomId'){
-        conditionalRoomIDs[field].push(conditions[field]);
-        return;
-      }
-
-      switch(this._metadataSchema[field]){
-        case 'number':
-          if(typeof conditions[field] !== 'number'){
-            logger.error(`Expected ${field} to be a number, received ${typeof conditions[field]}`);
-            return;
-          }
-
-          var [err, results] = await this._client.zrangebyscore(`${this._roomcachesKey}:${field}`, conditions[field], conditions[field]);
-
-          if(err){
-            logger.error("ValkeyDriver: error finding rooms", err);
-          }
-
-          conditionalRoomIDs[field].push(...results);
-          break;
-        case 'string':
-          if(typeof conditions[field] !== 'string'){
-            logger.error(`Expected ${field} to be a string, received ${typeof conditions[field]}`);
-            return;
-          }
-
-          var [err, results] = await this._client.zrangebylex(`${this._roomcachesKey}:${field}`, `[${conditions[field]}`, `[${conditions[field]}\xff`);
-
-          if(err){
-            logger.error("ValkeyDriver: error finding rooms", err);
-          }
-
-          conditionalRoomIDs[field].push(...results);
-          break;
-        case 'boolean':
-          if(typeof conditions[field] !== 'boolean'){
-            logger.error(`Expected ${field} to be a boolean, received ${typeof conditions[field]}`);
-            return;
-          }
-
-          var [err, results] = await this._client.zrangebyscore(`${this._roomcachesKey}:${field}`, conditions[field] ? 1 : 0, conditions[field] ? 1 : 0);
-
-          if(err){
-            logger.error("ValkeyDriver: error finding rooms", err);
-          }
-
-          conditionalRoomIDs[field].push(...results);
-          break;
-        case 'json':
-          logger.error(`ValkeyDriver: json fields are not supported for querying`);
-          break;
-      }
-    }));
-
-    // now we need to find the intersection of all of the sets of roomIDs
-    const roomIDs = Object.values(conditionalRoomIDs).reduce((acc, val) => acc.filter(x => val.includes(x)));
-
-    // now we load all of the json data from the primary index
-    const rooms = [];
-
-    if (roomIDs.length > 0) {
-      const [err, roomData] = await this._client.hmget(this._roomcachesKey, ...roomIDs);
-      if (err) {
-        logger.error("ValkeyDriver: error finding rooms", err);
-      } else {
-        for (let i = 0; i < roomData.length; i++) {
-          rooms.push(new RoomData(JSON.parse(roomData[i]), this._client, this._roomcachesKey, this._metadataSchema));
+      Object.keys(conditions).forEach((field) => {
+        if(this._metadataSchema[field] === 'boolean'){
+          sets.push(`${this._roomcachesKey}:field:${field}`)
+        } else if (this._metadataSchema[field] === 'string'){
+          sets.push(`${this._roomcachesKey}:field:${field}:${conditions[field]}`)
+        } else if (this._metadataSchema[field] === 'number'){
+          sets.push(`${this._roomcachesKey}:field:${field}:${conditions[field]}`)
         }
-      }
+      })
+
+      roomIDs.push(...await this._client.sinter(...sets));
     }
 
-    return rooms;
+    const roomDatas = await this._client.hmget(this._roomcachesKey, ...roomIDs);
 
+    return roomDatas.map((roomData) => new RoomData(JSON.parse(roomData), this._client, this._roomcachesKey, this._metadataSchema, this._eligibleForMatchmaking));
   }
 
   public async cleanup(processId: string){
@@ -205,25 +171,7 @@ export class ValkeyDriver implements MatchMakerDriver {
         this._$localRooms = this._$localRooms.filter((room) => !rooms.includes(room));
       }
 
-      const txn = this._client.multi();
-
-      // remove the primary cache information
-      txn.hdel(this._roomcachesKey, ...rooms);
-
-      // iterate through the metadata schema and remove each field
-      for (const field in this._metadataSchema){
-
-        // we don't index json fields or roomid fields
-        if(field === 'roomId' || this._metadataSchema[field] === 'json') continue;
-
-        txn.zrem(`${this._roomcachesKey}:${field}`, ...rooms);
-      }
-
-      const [err, results] = await txn.exec();
-
-      if(err){
-        logger.error("ValkeyDriver: error cleaning up rooms", err);
-      }
+      cachedRooms.forEach((room) => room.remove()); // this is sloppy but really shouldn't be used?
     }
   }
 
@@ -232,6 +180,7 @@ export class ValkeyDriver implements MatchMakerDriver {
   }
 
   public async shutdown(){
+    this.ownProcessID = undefined; // this should deregister the process
     await this._client.quit();
   }
 
@@ -239,6 +188,7 @@ export class ValkeyDriver implements MatchMakerDriver {
   // only relevant for the test-suite.
   // not used during runtime.
   //
+  // this will break testsuite because it's not possible to know every value of every room string lol
   public clear() {
     this._client.del(this._roomcachesKey);
     for (const field in this._metadataSchema){

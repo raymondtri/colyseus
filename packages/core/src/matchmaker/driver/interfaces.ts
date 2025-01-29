@@ -30,6 +30,7 @@ export interface QueryHelpers<T> {
 export interface MatchMakerDriver {
 
   ownProcessId?: string;
+  externalMatchmaker?: boolean; // realistically this should always be defined but since undefined is falsey it works
 
   /**
    * Initialize a room cache which contains CRUD operations for room listings.

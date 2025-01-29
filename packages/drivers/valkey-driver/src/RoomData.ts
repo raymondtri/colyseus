@@ -2,6 +2,7 @@ import { RoomListingData, logger } from "@colyseus/core";
 import Redis, { Cluster } from "iovalkey";
 
 import { MetadataSchema } from "./MetadataSchema";
+import { eligibleForMatchmakingCallback } from "./EligibleForMatchmaking";
 
 export class RoomData implements RoomListingData {
   public clients: number = 0;
@@ -18,21 +19,22 @@ export class RoomData implements RoomListingData {
 
   #client: Redis | Cluster;
   #roomcachesKey: string;
-  #processcachesKey: string;
   #metadataSchema: MetadataSchema;
-  #removed: boolean = false;
+  #eligibleForMatchmaking: eligibleForMatchmakingCallback;
+
+  removed: boolean = false; // need to access this from the outside
 
   constructor(
     initialValues: any,
     client: Redis | Cluster,
     roomcachesKey: string,
-    processcachesKey: string,
-    metadataSchema: MetadataSchema
+    metadataSchema: MetadataSchema,
+    eligibleForMatchmaking: eligibleForMatchmakingCallback
   ) {
     this.#client = client;
     this.#roomcachesKey = roomcachesKey;
-    this.#processcachesKey = processcachesKey;
     this.#metadataSchema = metadataSchema;
+    this.#eligibleForMatchmaking = eligibleForMatchmaking;
 
     this.createdAt = (initialValues && initialValues.createdAt)
       ? new Date(initialValues.createdAt)
@@ -69,9 +71,17 @@ export class RoomData implements RoomListingData {
     }
   }
 
+  get eligibleForMatchmaking(){
+    return this.#eligibleForMatchmaking(this);
+  }
+
+  set eligibleForMatchmaking(value: boolean){ // do nothing here, very important because this should be a dynamic value
+    return;
+  }
+
   public async save() {
     // skip if already removed.
-    if (this.#removed) {
+    if (this.removed) {
       return;
     }
 
@@ -80,44 +90,52 @@ export class RoomData implements RoomListingData {
       return;
     }
 
-    const txn = this.#client.multi();
-    // first we set the primary cache information
-    txn.hset(this.#roomcachesKey, this.roomId, JSON.stringify(this.toJSON()));
-    // then we iterate through the metadata schema and set each field
+    const fieldKey = `${this.#roomcachesKey}:field`;
 
-    // we also have another field that is needed for external matchmaking
-    // this stores the number of connected clients IF the room is unlocked
-    if(!this.locked && !this.private){
-        txn.hset(`${this.#roomcachesKey}:roomsUnlockedAndPublic:${this.processId}`, this.clients, this.roomId);
+    let oldRoomData: any;
+    for (const field in this.#metadataSchema) { // do one loop here because we're going to need this later and it's better than subsequent calls
+      if(field !== 'roomId' && ( this.#metadataSchema[field] === 'string' || this.#metadataSchema[field] === 'number')){
+        const res = await this.#client.hmget(this.#roomcachesKey, this.roomId);
+        oldRoomData = res[0] ? JSON.parse(res[0]) : null;
+        break;
+      }
     }
 
+    const txn = this.#client.multi();
+
+    // I think we just set the fields here honestly, we don't need to do anything special
+    // then we go through and run SINTER to create a new intersection on the fly?
     for (const field in this.#metadataSchema){
       if(field === 'roomId'){// there is no need to build a roomId index that links to the roomId lol
         continue;
       }
 
-      switch (this.#metadataSchema[field]){
-        case 'string':
-          // set up a lexographically sorted set for string fields
-          // TEST: docs say that this should have 0 as a score but is iovalkey handling this for us?
-          txn.zadd(`${this.#roomcachesKey}:${field}`, this[field], this.roomId);
-          break;
-        case 'number':
-          // set up a simple numerical index sorted set for number fields
-          txn.zadd(`${this.#roomcachesKey}:${field}`, this[field], this.roomId);
-          break;
-        case 'boolean':
-          // set up a simple numerical index sorted set for boolean fields
-          txn.zadd(`${this.#roomcachesKey}:${field}`, this[field] ? 1 : 0, this.roomId);
-          break;
-        case 'json':
-          // do nothing as json is not queryable
-          break;
-        default:
-          // this should _never_ be reachable due to strict typing
-          logger.warn(`ValkeyDriver: unknown metadata type ${this.#metadataSchema[field]}`);
-          break;
+      const value = this[field];
+
+      // now we get fancy and create secondary indexes so we can use SINTER to filter on the fly, and even SORT on SINTER to apply filters etc. at the db level
+      if(this.#metadataSchema[field] === 'boolean'){
+        if(value){
+          txn.sadd(`${fieldKey}:${field}`, this.roomId);
+        } else {
+          txn.srem(`${fieldKey}:${field}`, this.roomId);
+        }
+      } else if (this.#metadataSchema[field] === 'string'){
+        // Get the current value from Redis to remove from old index
+        if (oldRoomData && oldRoomData[field] !== value) {
+          txn.srem(`${fieldKey}:${field}:${oldRoomData[field]}`, this.roomId);
+        }
+        txn.sadd(`${fieldKey}:${field}:${value}`, this.roomId);
+      } else if (this.#metadataSchema[field] === 'number'){
+        // Get the current value from Redis to remove from old index
+        if (oldRoomData && oldRoomData[field] !== value) {
+          txn.zrem(`${fieldKey}:${field}`, this.roomId);
+          txn.srem(`${fieldKey}:${field}:${oldRoomData[field]}`, this.roomId);
+        }
+        txn.zadd(`${fieldKey}:${field}`, value, this.roomId);
+        txn.sadd(`${fieldKey}:${field}:${value}`, this.roomId);
       }
+
+      txn.hset(this.#roomcachesKey, field, JSON.stringify(value));
     }
 
     const [err, results] = await txn.exec();
@@ -146,17 +164,32 @@ export class RoomData implements RoomListingData {
 
   public remove() {
     if(this.roomId){
-      this.#removed = true;
+      this.removed = true;
+
+      const fieldKey = `${this.#roomcachesKey}:field`;
 
       const txn = this.#client.multi();
 
-      // remove the primary cache information
-      txn.hdel(this.#roomcachesKey, this.roomId);
+      // remove all of the fields from the field indexes
+      for (const field in this.#metadataSchema) {
+        if(field === 'roomId'){
+          continue;
+        }
+        const value = this[field];
 
-      // iterate through the metadata schema and remove each field
-      for (const field in this.#metadataSchema){
-        txn.zrem(`${this.#roomcachesKey}:${field}`, this.roomId);
+        if(this.#metadataSchema[field] === 'boolean'){
+          txn.srem(`${fieldKey}:${field}`, this.roomId);
+        } else if (this.#metadataSchema[field] === 'string'){
+          txn.srem(`${fieldKey}:${field}:${value}`, this.roomId);
+        } else if (this.#metadataSchema[field] === 'number'){
+          txn.zrem(`${fieldKey}:${field}`, this.roomId);
+          txn.srem(`${fieldKey}:${field}:${value}`, this.roomId);
+        }
+
       }
+
+      // remove the room from the room index
+      txn.hdel(this.#roomcachesKey, this.roomId);
 
       return txn.exec();
     }
