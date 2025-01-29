@@ -1,10 +1,10 @@
 import Redis, { Cluster, ClusterNode, ClusterOptions, RedisOptions } from 'iovalkey';
 
 import {
-  IRoomListingData,
+  IRoomCache,
   MatchMakerDriver,
-  QueryHelpers,
-  RoomListingData,
+  SortOptions,
+  RoomCache,
   debugMatchMaking,
   logger
 } from '@colyseus/core';
@@ -115,7 +115,8 @@ export class ValkeyDriver implements MatchMakerDriver {
 
   // this is really just for "nice to have" functionality, since you can query the client directly.
   // and in fact, it is recommended that you query the client directly based on your needs for matchmaking filtering
-  public async find(conditions: Partial<IRoomListingData&typeof this._metadataSchema>){
+  // this is not adequate for sorting!!!!!!!
+  public async query(conditions: Partial<IRoomCache&typeof this._metadataSchema>){
     if(this.externalMatchmaker){
       return this.$localRooms.filter((room) => {
         for (const field in conditions) {
@@ -156,7 +157,7 @@ export class ValkeyDriver implements MatchMakerDriver {
   }
 
   public async cleanup(processId: string){
-    const cachedRooms = await this.find({processId});
+    const cachedRooms = await this.query({processId});
     debugMatchMaking("removing stale rooms by processId %s (%s rooms found)", processId, cachedRooms.length);
 
     const itemsPerCommand = 500;
@@ -175,8 +176,8 @@ export class ValkeyDriver implements MatchMakerDriver {
     }
   }
 
-  public findOne(conditions: Partial<IRoomListingData&typeof this._metadataSchema>){
-    return this.find(conditions)[0];
+  public findOne(conditions: Partial<IRoomCache&typeof this._metadataSchema>){
+    return this.query(conditions)[0];
   }
 
   public async shutdown(){

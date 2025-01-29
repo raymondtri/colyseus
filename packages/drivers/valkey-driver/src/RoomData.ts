@@ -1,10 +1,10 @@
-import { RoomListingData, logger } from "@colyseus/core";
+import { RoomCache, logger } from "@colyseus/core";
 import Redis, { Cluster } from "iovalkey";
 
 import { MetadataSchema } from "./MetadataSchema";
 import { eligibleForMatchmakingCallback } from "./EligibleForMatchmaking";
 
-export class RoomData implements RoomListingData {
+export class RoomData implements RoomCache {
   public clients: number = 0;
   public locked: boolean = false;
   public private: boolean = false;
