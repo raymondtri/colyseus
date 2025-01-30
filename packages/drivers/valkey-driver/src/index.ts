@@ -80,11 +80,6 @@ export class ValkeyDriver implements MatchMakerDriver {
     return this._$localRooms.filter((room) => !room.removed);
   }
 
-  // we expose the client here in case people just want to do their own raw queries, that's fine.
-  get client(){
-    return this._client;
-  }
-
   public roomCachesKey(){
     return this._roomcachesKey;
   }
@@ -140,6 +135,10 @@ export class ValkeyDriver implements MatchMakerDriver {
     const results = await this._client.hmget(this._roomcachesKey, ...roomIDs);
     return results.filter(result => result).map((roomData) => JSON.parse(roomData));
     // we don't want to actually create new RoomData objects because that doubles the execution time and this is more of a query for information than anything
+  }
+
+  get client(): Redis | Cluster {
+    return this._client;
   }
 
   public async cleanup(processId: string){

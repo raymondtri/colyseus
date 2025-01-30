@@ -1,3 +1,4 @@
+import nanoid from 'nanoid';
 import { MatchMakerDriver } from "@colyseus/core";
 import { hrtime } from "process";
 
@@ -26,11 +27,33 @@ export class Queue {
     // TODO matchmake the requests
   }
 
-  async healthcheck(){
-    // TODO another process that will check the health of all rooms and make sure there are no orphans from crashed rooms
-  }
+  // we don't want a healthcheck in here
+  // really if you are deploying via containers you want to have a cleanup process that fires if the container dies
+  // so that should be a custom lambda
 
   async queue(...args:any){
-    // TODO add a room to the queue
+    const requestId = nanoid(9);
+
+    let connectionResolve;
+    let connectionReject;
+    const promise = new Promise((resolve, reject) => {
+      connectionResolve = resolve;
+      connectionReject = reject;
+    })
+
+    if(!this._driver.client) connectionReject('No client available to queue the request');
+
+    this._driver.client.subscribe(`matchmaking:matches:${requestId}`);
+    this._driver.client.on("message", (channel, message) => {
+      // TODO return the response at this point
+      console.log(channel)
+      console.log(message)
+
+      connectionResolve(message)
+    })
+
+    this._driver.client.sadd(`matchmaking:requests`, requestId);
+
+    return promise;
   }
 }

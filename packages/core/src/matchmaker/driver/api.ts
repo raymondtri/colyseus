@@ -78,6 +78,11 @@ export interface MatchMakerDriver {
   externalMatchmaker?: boolean; // realistically this should always be defined but since undefined is falsey it works
 
   /**
+   * Returns a direct client if available
+   */
+  client?: any;
+
+  /**
    * Initialize a room cache which contains CRUD operations for room listings.
    *
    * @param initialValues - Predefined room properties.
