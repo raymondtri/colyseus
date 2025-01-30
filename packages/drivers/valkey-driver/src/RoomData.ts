@@ -105,9 +105,6 @@ export class RoomData implements RoomCache {
 
     const txn = this.#client.multi();
 
-    // go ahead and make sure the process is in the list of processes
-    txn.sadd(`${this.#roomcachesKey}:processes`, this.processId);
-
     // I think we just set the fields here honestly, we don't need to do anything special
     // then we go through and run SINTER to create a new intersection on the fly?
     for (const field in this.#metadataSchema){

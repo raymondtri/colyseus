@@ -98,7 +98,6 @@ export class Server {
 
     this.driver = options.driver || new LocalDriver();
 
-
     this.greet = greet;
 
     this.attach(options);

@@ -67,10 +67,6 @@ export class ValkeyDriver implements MatchMakerDriver {
 
   // createInstance is only called by the matchmaker on the same server as the driver
   public createInstance(initialValues: any = {}){
-    if(initialValues.processId){
-      this._$ownProcessId = initialValues.processId; // we just snag this here so it's avaialable on shutdown
-    }
-
     const room = new RoomData(initialValues, this._client, this._roomcachesKey, this._metadataSchema, this._eligibleForMatchmaking);
 
     this._$localRooms.push(room);
@@ -80,6 +76,16 @@ export class ValkeyDriver implements MatchMakerDriver {
 
   get $localRooms(){
     return this._$localRooms.filter((room) => !room.removed);
+  }
+
+  get ownProcessId(){
+    return this._$ownProcessId;
+  }
+
+  set ownProcessId(processId: string){
+    this._$ownProcessId = processId
+
+    this._client.sadd(`${this._roomcachesKey}:processes`, processId);
   }
 
   // we expose the client here in case people just want to do their own raw queries, that's fine.
