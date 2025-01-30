@@ -14,6 +14,8 @@ import { MetadataSchema } from './MetadataSchema';
 
 import { eligibleForMatchmaking, eligibleForMatchmakingCallback } from './EligibleForMatchmaking';
 
+import { unserialize } from './Serializer';
+
 export type ValkeyDriverOptions = {
   roomcachesKey?: string;
   metadataSchema?: MetadataSchema;
@@ -135,9 +137,13 @@ export class ValkeyDriver implements MatchMakerDriver {
       roomIDs.push(...await this._client.sinter(...sets));
     }
 
+    if(roomIDs.length === 0) return [];
+
     const results = await this._client.hmget(this._roomcachesKey, ...roomIDs);
 
     return results.filter(result => result).map((roomData) => new RoomData(JSON.parse(roomData), this._client, this._roomcachesKey, this._metadataSchema, this._eligibleForMatchmaking));
+
+    // return results.filter(result => result).map((roomData) => new RoomData(unserialize(this._metadataSchema, roomData), this._client, this._roomcachesKey, this._metadataSchema, this._eligibleForMatchmaking));
   }
 
   public async cleanup(processId: string){

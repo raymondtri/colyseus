@@ -4,6 +4,8 @@ import Redis, { Cluster } from "iovalkey";
 import { MetadataSchema } from "./MetadataSchema";
 import { eligibleForMatchmakingCallback } from "./EligibleForMatchmaking";
 
+import { serialize } from "./Serializer";
+
 export class RoomData implements RoomCache {
   public clients: number = 0;
   public locked: boolean = false;
@@ -58,6 +60,14 @@ export class RoomData implements RoomCache {
     }
   }
 
+  get eligibleForMatchmaking(){
+    return this.#eligibleForMatchmaking(this);
+  }
+
+  set eligibleForMatchmaking(value: boolean){ // do nothing here, very important because this should be a dynamic value
+    return;
+  }
+
   public toJSON() {
     return {
       clients: this.clients,
@@ -68,15 +78,7 @@ export class RoomData implements RoomCache {
       publicAddress: this.publicAddress,
       processId: this.processId,
       roomId: this.roomId,
-    }
-  }
-
-  get eligibleForMatchmaking(){
-    return this.#eligibleForMatchmaking(this);
-  }
-
-  set eligibleForMatchmaking(value: boolean){ // do nothing here, very important because this should be a dynamic value
-    return;
+    };
   }
 
   public async save() {
@@ -145,7 +147,13 @@ export class RoomData implements RoomCache {
       }
     }
 
-    txn.hset(this.#roomcachesKey, this.roomId, JSON.stringify(this.toJSON()));
+    /*
+    const data = serialize(this.#metadataSchema, this);
+    console.log(serialize)
+
+    txn.hset(this.#roomcachesKey, this.roomId, data);
+    */
+    txn.hset(this.#roomcachesKey, this.roomId, JSON.stringify(this.toJSON()))
 
     const results = await txn.exec();
 
