@@ -103,6 +103,9 @@ export class RoomData implements RoomCache {
 
     const txn = this.#client.multi();
 
+    // go ahead and make sure the process is in the list of processes
+    txn.sadd(`${this.#roomcachesKey}:processes`, this.processId);
+
     // I think we just set the fields here honestly, we don't need to do anything special
     // then we go through and run SINTER to create a new intersection on the fly?
     for (const field in this.#metadataSchema){
@@ -110,7 +113,13 @@ export class RoomData implements RoomCache {
         continue;
       }
 
-      const value = this[field];
+      let value;
+
+      if(field === 'createdAt'){
+        value = this.createdAt.getTime();
+      } else {
+        value = this[field];
+      }
 
       // now we get fancy and create secondary indexes so we can use SINTER to filter on the fly, and even SORT on SINTER to apply filters etc. at the db level
       if(this.#metadataSchema[field] === 'boolean'){
@@ -134,16 +143,22 @@ export class RoomData implements RoomCache {
         txn.zadd(`${fieldKey}:${field}`, value, this.roomId);
         txn.sadd(`${fieldKey}:${field}:${value}`, this.roomId);
       }
-
-      txn.hset(this.#roomcachesKey, field, JSON.stringify(value));
     }
 
-    const [err, results] = await txn.exec();
+    txn.hset(this.#roomcachesKey, this.roomId, JSON.stringify(this.toJSON()));
+
+    const results = await txn.exec();
+
+    logger.debug("ValkeyDriver: saved room data", results);
 
     // if there was an error, log it
+    /*
     if (err){
       logger.error("ValkeyDriver: error saving room data", err);
+    } else {
+      logger.debug("ValkeyDriver: saved room data", results);
     }
+    */
   }
 
   public updateOne(operations: any) {

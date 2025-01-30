@@ -28,8 +28,7 @@ export class ValkeyDriver implements MatchMakerDriver {
   private readonly _eligibleForMatchmaking: eligibleForMatchmakingCallback;
 
   private _$localRooms: RoomData[] = [];
-
-  private _$ownProcessID?: string;
+  private _$ownProcessId: string;
 
   externalMatchmaker: boolean; // constrain the driver from only looking in local rooms
 
@@ -64,25 +63,10 @@ export class ValkeyDriver implements MatchMakerDriver {
       : new Redis(options as RedisOptions);
   }
 
-  set ownProcessID(processId: string | undefined){
-    if(processId){
-      this._client.sadd(`${this._roomcachesKey}:process`, processId);
-    } else {
-      this._client.srem(`${this._roomcachesKey}:process`, this._$ownProcessID);
-    }
-
-    this._$ownProcessID = processId;
-  }
-
-  get ownProcessID(){
-    return this._$ownProcessID;
-  }
-
   // createInstance is only called by the matchmaker on the same server as the driver
   public createInstance(initialValues: any = {}){
-    // it is critical to snag the process id here as we need it for other things
     if(initialValues.processId){
-      this.ownProcessID = initialValues.processId;
+      this._$ownProcessId = initialValues.processId; // we just snag this here so it's avaialable on shutdown
     }
 
     const room = new RoomData(initialValues, this._client, this._roomcachesKey, this._metadataSchema, this._eligibleForMatchmaking);
@@ -151,9 +135,9 @@ export class ValkeyDriver implements MatchMakerDriver {
       roomIDs.push(...await this._client.sinter(...sets));
     }
 
-    const roomDatas = await this._client.hmget(this._roomcachesKey, ...roomIDs);
+    const results = await this._client.hmget(this._roomcachesKey, ...roomIDs);
 
-    return roomDatas.map((roomData) => new RoomData(JSON.parse(roomData), this._client, this._roomcachesKey, this._metadataSchema, this._eligibleForMatchmaking));
+    return results.filter(result => result).map((roomData) => new RoomData(JSON.parse(roomData), this._client, this._roomcachesKey, this._metadataSchema, this._eligibleForMatchmaking));
   }
 
   public async cleanup(processId: string){
@@ -181,7 +165,9 @@ export class ValkeyDriver implements MatchMakerDriver {
   }
 
   public async shutdown(){
-    this.ownProcessID = undefined; // this should deregister the process
+    // deregister the process
+    await this._client.srem(`${this._roomcachesKey}:processes`, this._$ownProcessId);
+    // quit the client
     await this._client.quit();
   }
 

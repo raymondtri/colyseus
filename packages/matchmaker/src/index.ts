@@ -1,55 +1,24 @@
 import { MatchMakerDriver } from "@colyseus/core";
+import { hrtime } from "process";
 
-export type ClientOptions = any;
+export class Queue {
 
-export let driver: MatchMakerDriver
-export let maxClients = Infinity;
+  private _driver: MatchMakerDriver;
 
-export async function setup(
-  driver: MatchMakerDriver,
-  options: {
-    maxClients?: number
-  } = {}
-) {
-  this.driver = driver;
-  driver.externalMatchmaker = false; // this is just a clarity thing but is necessary
+  constructor(driver: MatchMakerDriver) {
+    this._driver = driver;
 
-  if(options.maxClients){
-    this.maxClients = options.maxClients;
+    if(this._driver.externalMatchmaker) throw new Error('External Matchmaking must be set to false on the matchmaker processor, it IS the external matchmaker.')
   }
-}
 
+  async process(){
+    // TODO query the actual queue for requests to process
+    const startTime = hrtime.bigint();
+    const eligibleRooms = await this._driver.query({eligibleForMatchmaking: true});
+    const endTime = hrtime.bigint();
+    console.log(eligibleRooms)
 
-
-export async function joinById(roomId: string, clientOptions: ClientOptions = {}){
-
-}
-
-export async function reconnect(roomId: string, sessionId: string, clientOptions: ClientOptions = {}){
-
-}
-
-
-// both rooms by processId AND clients by processId are important
-// create, join and joinOrCreate are very advanced because you need to queue up the room creation so that it will create a room with matching clients
-export async function create(roomName: string, clientOptions: ClientOptions = {}){
-  // we have a couple of steps here
-  // 1. we need to find the process that is most suitable for the room, this is based on
-  //   a. the number of clients in the process which is derived from
-  //     i. the number of clients in each room of the process
-
-
-
-}
-
-export async function joinOrCreate(roomName: string, clientOptions: ClientOptions = {}){
-
-}
-
-export async function join(roomName: string, clientOptions: ClientOptions = {}){
-
-}
-
-export async function clientsByProcessId(){
-
+    const durationInMilliseconds = Number(endTime - startTime) / 1_000_000;
+    console.log(`Found and deserialized ${eligibleRooms.length} eligible rooms in ${durationInMilliseconds} milliseconds.`)
+  }
 }
