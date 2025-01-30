@@ -52,7 +52,10 @@ export class Queue {
       connectionResolve(message)
     })
 
-    this._driver.client.sadd(`matchmaking:requests`, requestId);
+    this._driver.client.sadd(`matchmaking:requests`, JSON.stringify({
+      requestId,
+      args
+    }));
 
     return promise;
   }
