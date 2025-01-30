@@ -12,7 +12,6 @@ export class Queue {
   }
 
   async process(){
-    // TODO query the actual queue for requests to process
     const startTime = hrtime.bigint();
     const eligibleRooms = await this._driver.query({eligibleForMatchmaking: true});
     const endTime = hrtime.bigint();
@@ -20,5 +19,17 @@ export class Queue {
 
     const durationInMilliseconds = Number(endTime - startTime) / 1_000_000;
     console.log(`Found and deserialized ${eligibleRooms.length} eligible rooms in ${durationInMilliseconds} milliseconds.`)
+
+    // TODO query the actual queue for requests to process
+
+    // TODO matchmake the requests
+  }
+
+  async healthcheck(){
+    // TODO another process that will check the health of all rooms and make sure there are no orphans from crashed rooms
+  }
+
+  async queue(...args:any){
+    // TODO add a room to the queue
   }
 }
