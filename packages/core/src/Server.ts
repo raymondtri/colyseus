@@ -26,7 +26,6 @@ export type ServerOptions = {
   publicAddress?: string,
   presence?: Presence,
   driver?: matchMaker.MatchMakerDriver,
-  externalMatchmakerAuth?: string,
   transport?: Transport,
   gracefullyShutdown?: boolean,
   logger?: any;
@@ -79,8 +78,6 @@ export class Server {
   protected presence: Presence;
   protected driver: matchMaker.MatchMakerDriver;
 
-  protected externalMatchmakerAuth?: string;
-
   protected port: number;
   protected greet: boolean;
 
@@ -92,13 +89,14 @@ export class Server {
 
     setDevMode(options.devMode === true);
 
-    this.presence = options.presence || new LocalPresence();
-    this.driver = options.driver || new LocalDriver();
-
-    if(options.externalMatchmakerAuth){
-      this.driver.externalMatchmaker = true;
-      this.externalMatchmakerAuth = options.externalMatchmakerAuth;
+    // anything but localpresence isn't compatible with external matchmaker driver
+    if(options.driver.externalMatchmaker){
+      this.presence = new LocalPresence();
+    } else {
+      this.presence = options.presence || new LocalPresence();
     }
+
+    this.driver = options.driver || new LocalDriver();
 
 
     this.greet = greet;
@@ -364,11 +362,6 @@ export class Server {
       matchMaker.controller.getCorsHeaders.call(undefined, req)
     );
 
-    if(matchMaker.driver.externalMatchmaker){
-      headers['Access-Control-Allow-Methods'] = 'OPTIONS, POST';
-      matchMaker.controller.exposedMethods = ['createRoom', 'reserveSeatFor'];
-    }
-
     if (req.method === 'OPTIONS') {
       res.writeHead(204, headers);
       res.end();
@@ -412,7 +405,7 @@ export class Server {
         res.end();
       });
 
-    } else if (req.method === 'GET' && !matchMaker.driver.externalMatchmaker) {
+    } else if (req.method === 'GET') {
       const matchedParams = req.url.match(matchMaker.controller.allowedRoomNameChars);
       const roomName = matchedParams.length > 1 ? matchedParams[matchedParams.length - 1] : "";
 
