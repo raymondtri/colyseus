@@ -102,7 +102,7 @@ export interface MatchMakerDriver {
    *
    * @returns Promise<IRoomCache[]> | IRoomCache[] - A promise or an object contaning room metadata list.
    */
-  query(conditions: Partial<IRoomCache>, sortOptions?: SortOptions,): Promise<IRoomCache[]> | IRoomCache[];
+  query(conditions: Partial<IRoomCache>, sortOptions?: SortOptions): Promise<IRoomCache[]> | IRoomCache[];
 
   /**
    * Clean up rooms in room cache by process id.

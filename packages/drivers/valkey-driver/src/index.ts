@@ -100,7 +100,7 @@ export class ValkeyDriver implements MatchMakerDriver {
   // this is really just for "nice to have" functionality, since you can query the client directly.
   // and in fact, it is recommended that you query the client directly based on your needs for matchmaking filtering
   // this is not adequate for sorting!!!!!!!
-  public async query(conditions: Partial<IRoomCache&typeof this._metadataSchema>){
+  public async query(conditions: Partial<IRoomCache&typeof this._metadataSchema>, sortOptions?: SortOptions){
     if(this.externalMatchmaker){
       return this.$localRooms.filter((room) => {
         for (const field in conditions) {
@@ -135,9 +135,11 @@ export class ValkeyDriver implements MatchMakerDriver {
       roomIDs.push(...await this._client.sinter(...sets));
     }
 
-    const results = await this._client.hmget(this._roomcachesKey, ...roomIDs);
+    if(roomIDs.length === 0) return []
 
-    return results.filter(result => result).map((roomData) => new RoomData(JSON.parse(roomData), this._client, this._roomcachesKey, this._metadataSchema, this._eligibleForMatchmaking));
+    const results = await this._client.hmget(this._roomcachesKey, ...roomIDs);
+    return results.filter(result => result).map((roomData) => JSON.parse(roomData));
+    // we don't want to actually create new RoomData objects because that doubles the execution time and this is more of a query for information than anything
   }
 
   public async cleanup(processId: string){

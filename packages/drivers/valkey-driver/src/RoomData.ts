@@ -92,14 +92,9 @@ export class RoomData implements RoomCache {
 
     const fieldKey = `${this.#roomcachesKey}:field`;
 
-    let oldRoomData: any;
-    for (const field in this.#metadataSchema) { // do one loop here because we're going to need this later and it's better than subsequent calls
-      if(field !== 'roomId' && ( this.#metadataSchema[field] === 'string' || this.#metadataSchema[field] === 'number')){
-        const res = await this.#client.hmget(this.#roomcachesKey, this.roomId);
-        oldRoomData = res[0] ? JSON.parse(res[0]) : null;
-        break;
-      }
-    }
+    const oldRoomDataResult = await this.#client.hmget(this.#roomcachesKey, this.roomId);
+    const oldRoomData = oldRoomDataResult[0] ? JSON.parse(oldRoomDataResult[0]) : null;
+
 
     const txn = this.#client.multi();
 
@@ -148,8 +143,6 @@ export class RoomData implements RoomCache {
     txn.hset(this.#roomcachesKey, this.roomId, JSON.stringify(this.toJSON()));
 
     const results = await txn.exec();
-
-    logger.debug("ValkeyDriver: saved room data", results);
 
     // if there was an error, log it
     /*

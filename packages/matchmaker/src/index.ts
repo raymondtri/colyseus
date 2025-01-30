@@ -15,10 +15,11 @@ export class Queue {
     const startTime = hrtime.bigint();
     const eligibleRooms = await this._driver.query({eligibleForMatchmaking: true});
     const endTime = hrtime.bigint();
-    console.log(eligibleRooms)
 
     const durationInMilliseconds = Number(endTime - startTime) / 1_000_000;
     console.log(`Found and deserialized ${eligibleRooms.length} eligible rooms in ${durationInMilliseconds} milliseconds.`)
+
+    // console.log(eligibleRooms)
 
     // TODO query the actual queue for requests to process
 
