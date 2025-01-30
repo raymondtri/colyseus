@@ -49,6 +49,8 @@ export class Queue {
       console.log(channel)
       console.log(message)
 
+      this._driver.client.unsubscribe(`matchmaking:matches:${requestId}`);
+
       connectionResolve(message)
     })
 
