@@ -172,7 +172,7 @@ export class ValkeyDriver implements MatchMakerDriver {
   public async queryProcesses(conditions: { [field: string]: any } = {}, limit: number = 1){
 
     const processIDs:string[] = [];
-    const rankedProcessIDs:string[] = [];
+    const processScores: { [processId : string]: number } = {};
 
     if(Object.keys(conditions).length > 0){
       if(conditions.processId){ // no need to process anything else
@@ -198,18 +198,27 @@ export class ValkeyDriver implements MatchMakerDriver {
         return [];
       } else {
         const scores = await this._client.zmscore(`${this._roomcachesKey}:processes:field:score`, ...processIDs);
-        const processScores = processIDs.map((id, index) => ({ id, score: scores[index] }));
-        processScores.sort((a, b) => Number(a.score) - Number(b.score));
-        rankedProcessIDs.push(...processScores.map((process) => process.id));
+        processIDs.forEach((processId, index) => processScores[processId] = parseInt(scores[index]));
       }
     } else { // no filtering conditions, just grab the processes
-      rankedProcessIDs.push(...await this._client.zrangebyscore(`${this._roomcachesKey}:processes:field:score`, 0, "+inf", "LIMIT", 0, limit - 1));
+      const rankedProcesses = await this._client.zrangebyscore(`${this._roomcachesKey}:processes:field:score`, 0, "+inf", "WITHSCORES", "LIMIT", 0, limit - 1);
+      for (let i = 0; i < rankedProcesses.length; i += 2) {
+        const processId = rankedProcesses[i];
+        const score = parseInt(rankedProcesses[i + 1]);
+        processScores[processId] = score;
+      }
     }
 
-    if(rankedProcessIDs.length === 0) return [];
+    if(Object.keys(processScores).length === 0) return [];
 
-    const results = await this._client.hmget(`${this._roomcachesKey}:processes`, ...rankedProcessIDs);
-    return results.filter(result => result).map((processData) => JSON.parse(processData));
+    const results = await this._client.hmget(`${this._roomcachesKey}:processes`, ...Object.keys(processScores));
+    return results.filter(result => result).map((processData) => {
+      let data = JSON.parse(processData);
+      return {
+        ...data,
+        score: processScores[data.processId]
+      }
+    });
   }
 
   // this is set up in a way that process values here should never change
