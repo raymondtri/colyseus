@@ -116,7 +116,7 @@ export class Queue {
     requests.forEach((request:any) => {
       if(request.method === 'create'){ // we just automatically handle these
         const process = findProcessinEligibleProcesses({})[0];
-        const url = new URL(process.publicAddress);
+        const url = new URL('http://' + process.publicAddress);
 
         const match = {
           method: 'create',
@@ -124,7 +124,7 @@ export class Queue {
           options: request.clientOptions,
           settings: {
             hostname: url.hostname,
-            secure: url.protocol === 'https:' || url.protocol === 'wss:',
+            secure: false, // TODO handle how we determine security
             pathname: url.pathname,
             port: url.port ? parseInt(url.port) : undefined
           }
@@ -253,7 +253,7 @@ export class Queue {
 
       if(!process) throw new Error('No process found to create room in.');
 
-      const url = new URL(process.publicAddress);
+      const url = new URL('http://' + process.publicAddress);
 
       return {
         roomName: roomNameOrID,
@@ -261,7 +261,7 @@ export class Queue {
         options: clientOptions,
         settings: {
           hostname: url.hostname,
-          secure: url.protocol === 'https:' || url.protocol === 'wss:',
+          secure: false,
           pathname: url.pathname,
           port: url.port ? parseInt(url.port) : undefined
         }
@@ -271,7 +271,7 @@ export class Queue {
 
       if(!room) throw new Error(`No room found for room ${roomNameOrID}`);
 
-      const url = new URL(room.publicAddress);
+      const url = new URL('http://' + room.publicAddress);
 
       return {
         roomName: roomNameOrID,
@@ -279,7 +279,7 @@ export class Queue {
         options: clientOptions,
         settings: {
           hostname: url.hostname,
-          secure: url.protocol === 'https:' || url.protocol === 'wss:',
+          secure: false,
           pathname: url.pathname,
           port: url.port ? parseInt(url.port) : undefined
         }

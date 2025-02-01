@@ -72,6 +72,7 @@ export default {
       return await matchMaker[method](roomName, clientOptions, authOptions);
 
     } catch (e) {
+      console.log(e)
       throw new ServerError(e.code || ErrorCode.MATCHMAKE_UNHANDLED, e.message);
     }
   }
