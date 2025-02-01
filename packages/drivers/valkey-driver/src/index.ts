@@ -172,34 +172,36 @@ export class ValkeyDriver implements MatchMakerDriver {
   public async queryProcesses(conditions: { [field: string]: any } = {}, limit: number = 1){
 
     const processIDs:string[] = [];
-    if(conditions.processId){ // no need to process anything else
-      processIDs.push(conditions.processId);
-    } else {
-      const sets: string[] = [];
-
-      Object.keys(conditions).forEach((field) => {
-        if(typeof conditions[field] === 'boolean'){
-          sets.push(`${this._roomcachesKey}:processes:field:${field}`)
-        } else if (typeof conditions[field] === 'string'){
-          sets.push(`${this._roomcachesKey}:processes:field:${field}:${conditions[field]}`)
-        } else if (typeof conditions[field] === 'number'){
-          sets.push(`${this._roomcachesKey}:processes:field:${field}:${conditions[field]}`)
-        }
-      })
-
-      processIDs.push(...await this._client.sinter(...sets));
-    }
-
-    // early return because there was a query and nothing returned
-    if(Object.keys(conditions).length > 0 && processIDs.length === 0) return [];
-
     const rankedProcessIDs:string[] = [];
 
-    if(processIDs.length > 0){
-      const scores = await this._client.zmscore(`${this._roomcachesKey}:processes:field:score`, ...processIDs);
-      const processScores = processIDs.map((id, index) => ({ id, score: scores[index] }));
-      processScores.sort((a, b) => Number(a.score) - Number(b.score));
-      rankedProcessIDs.push(...processScores.map((process) => process.id));
+    if(Object.keys(conditions).length > 0){
+      if(conditions.processId){ // no need to process anything else
+        processIDs.push(conditions.processId);
+      } else {
+        const sets: string[] = [];
+
+        Object.keys(conditions).forEach((field) => {
+          if(typeof conditions[field] === 'boolean'){
+            sets.push(`${this._roomcachesKey}:processes:field:${field}`)
+          } else if (typeof conditions[field] === 'string'){
+            sets.push(`${this._roomcachesKey}:processes:field:${field}:${conditions[field]}`)
+          } else if (typeof conditions[field] === 'number'){
+            sets.push(`${this._roomcachesKey}:processes:field:${field}:${conditions[field]}`)
+          }
+        })
+
+        processIDs.push(...await this._client.sinter(...sets));
+      }
+
+      // early return because there was a query and nothing returned
+      if(processIDs.length === 0){
+        return [];
+      } else {
+        const scores = await this._client.zmscore(`${this._roomcachesKey}:processes:field:score`, ...processIDs);
+        const processScores = processIDs.map((id, index) => ({ id, score: scores[index] }));
+        processScores.sort((a, b) => Number(a.score) - Number(b.score));
+        rankedProcessIDs.push(...processScores.map((process) => process.id));
+      }
     } else { // no filtering conditions, just grab the processes
       rankedProcessIDs.push(...await this._client.zrangebyscore(`${this._roomcachesKey}:processes:field:score`, 0, "+inf", "LIMIT", 0, limit - 1));
     }
