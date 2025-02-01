@@ -219,34 +219,6 @@ export class Queue {
   // FIRST BOTTLENECK - number of connected clients to the redis instance. If 10,000 by default then this will only handle 9999 concurrent matchmaking requests
   // if you go over that threshold, then you will probably need to run a redis cluster
   // you will also need bigger nanoid lol
-  waitForResponse(...args:any){
-    const requestId = args.requestId || nanoid(9);
-
-    let connectionResolve;
-    let connectionReject;
-    const promise = new Promise((resolve, reject) => {
-      connectionResolve = resolve;
-      connectionReject = reject;
-    })
-
-    if(!this._driver.client) connectionReject('No client available to queue the request');
-
-    this._driver.client.subscribe(`matchmaking:matches:${requestId}`);
-    this._driver.client.on("message", (channel, message) => {
-      console.log(channel)
-      console.log(message)
-
-      this._driver.client.unsubscribe(`matchmaking:matches:${requestId}`);
-
-      connectionResolve(message)
-    })
-
-    return promise;
-  }
-
-  // we don't want a healthcheck in here
-  // really if you are deploying via containers you want to have a cleanup process that fires if the container dies
-  // so that should be a custom lambda
 
   async queue(method:string, roomNameOrID:string, clientOptions:matchMaker.ClientOptions, authOptions?:AuthContext){
     if(!this.queueableMethods.includes(method)) throw new Error(`Method ${method} is not queueable.`);
@@ -260,12 +232,32 @@ export class Queue {
       authOptions
     }
 
-    this._driver.client.sadd(`matchmaking:requests`, JSON.stringify({
+    let connectionResolve;
+    let connectionReject;
+    const promise = new Promise((resolve, reject) => {
+      connectionResolve = resolve;
+      connectionReject = reject;
+    })
+
+    if(!this._driver.client) connectionReject('No client available to queue the request');
+
+    await this._driver.client.sadd(`matchmaking:requests`, JSON.stringify({
       ...args,
       requestId
     }));
 
-    return this.waitForResponse(args);
+    this._driver.client.subscribe(`matchmaking:matches:${requestId}`);
+    this._driver.client.on("message", (channel, message) => {
+      console.log(channel)
+      console.log(message)
+
+      this._driver.client.unsubscribe(`matchmaking:matches:${requestId}`);
+
+      connectionResolve(JSON.parse(message))
+    })
+
+
+    return promise;
   }
 
   async dispatch(method: string, roomNameOrID: string, clientOptions: matchMaker.ClientOptions, authOptions?: AuthContext){
