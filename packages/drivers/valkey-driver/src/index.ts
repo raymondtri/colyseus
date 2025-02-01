@@ -17,7 +17,7 @@ import { eligibleForMatchmaking, eligibleForMatchmakingCallback, processEligibil
 export type ValkeyDriverOptions = {
   roomcachesKey?: string;
   metadataSchema?: MetadataSchema;
-  processProperties?: { [field: string]: string };
+  processProperties?: { [field: string]: string | number | boolean };
   externalMatchmaker?: boolean;
   eligibleForMatchmaking?: eligibleForMatchmakingCallback;
   processEligibilityScoreMap?: processEligibilityScoreCallbackMap | processEligibilityScoreCallback;
@@ -32,7 +32,7 @@ export class ValkeyDriver implements MatchMakerDriver {
 
   private _$localRooms: RoomData[] = [];
 
-  processProperties: { [field: string]: string } = {};
+  processProperties: { [field: string]: any } = {};
   externalMatchmaker: boolean; // constrain the driver from only looking in local rooms
 
   constructor(valkeyOptions?: ValkeyDriverOptions, options?: number | string | RedisOptions | ClusterNode[], clusterOptions?: ClusterOptions) {
@@ -75,6 +75,8 @@ export class ValkeyDriver implements MatchMakerDriver {
     this._client = (Array.isArray(options))
       ? new Cluster(options, clusterOptions)
       : new Redis(options as RedisOptions);
+
+    this.processProperties.createdAt = Date.now();
   }
 
   // createInstance is only called by the matchmaker on the same server as the driver
@@ -167,21 +169,84 @@ export class ValkeyDriver implements MatchMakerDriver {
   }
 
   // TODO this needs testing
-  public async findProcessesForMatchmaking(limit: number = 0){
-    const processIDs = await this._client.zrangebyscore(`${this._roomcachesKey}:processes:score`, 0, "+inf", "LIMIT", 0, limit - 1);
+  public async queryProcesses(conditions: { [field: string]: any } = {}, limit: number = 1){
 
-    if(processIDs.length === 0) return [];
+    const processIDs:string[] = [];
+    if(conditions.processId){ // no need to process anything else
+      processIDs.push(conditions.processId);
+    } else {
+      const sets: string[] = [];
 
-    const results = await this._client.hmget(`${this._roomcachesKey}:processes`, ...processIDs);
+      Object.keys(conditions).forEach((field) => {
+        if(typeof conditions[field] === 'boolean'){
+          sets.push(`${this._roomcachesKey}:processes:field:${field}`)
+        } else if (typeof conditions[field] === 'string'){
+          sets.push(`${this._roomcachesKey}:processes:field:${field}:${conditions[field]}`)
+        } else if (typeof conditions[field] === 'number'){
+          sets.push(`${this._roomcachesKey}:processes:field:${field}:${conditions[field]}`)
+        }
+      })
+
+      processIDs.push(...await this._client.sinter(...sets));
+    }
+
+    // early return because there was a query and nothing returned
+    if(Object.keys(conditions).length > 0 && processIDs.length === 0) return [];
+
+    const rankedProcessIDs:string[] = [];
+
+    if(processIDs.length > 0){
+      const scores = await this._client.zmscore(`${this._roomcachesKey}:processes:field:score`, ...processIDs);
+      const processScores = processIDs.map((id, index) => ({ id, score: scores[index] }));
+      processScores.sort((a, b) => Number(a.score) - Number(b.score));
+      rankedProcessIDs.push(...processScores.map((process) => process.id));
+    } else { // no filtering conditions, just grab the processes
+      rankedProcessIDs.push(...await this._client.zrangebyscore(`${this._roomcachesKey}:processes:field:score`, 0, "+inf", "LIMIT", 0, limit - 1));
+    }
+
+    if(rankedProcessIDs.length === 0) return [];
+
+    const results = await this._client.hmget(`${this._roomcachesKey}:processes`, ...rankedProcessIDs);
     return results.filter(result => result).map((processData) => JSON.parse(processData));
   }
 
+  // this is set up in a way that process values here should never change
   public async register(){
-    console.log(this.processProperties)
+
+    if(!this.processProperties.processId){
+      logger.error("ValkeyDriver: processId must be defined in processProperties");
+      return;
+    }
 
     const txn = this._client.multi();
 
-    txn.zadd(`${this._roomcachesKey}:processes:score`, this.processProperties.defaultScore ?? 0, this.processProperties.processId);
+    txn.zadd(`${this._roomcachesKey}:processes:field:score`, this.processProperties.defaultScore ?? 0, this.processProperties.processId);
+
+    for (const field in this.processProperties){ // and we make everything indexable
+      if(field === 'processId' || field === 'defaultScore'){ // there is no need to build a processId index that links to the processId lol
+        continue;
+      }
+
+      let value;
+
+      if(field === 'createdAt'){
+        value = new Date(this.processProperties.createdAt).getTime();
+      } else {
+        value = this.processProperties[field];
+      }
+
+      if(typeof value === 'boolean'){
+        if(value){
+          txn.sadd(`${this._roomcachesKey}:processes:field:${field}`, this.processProperties.processId);
+        }
+      } else if (typeof value === 'string'){
+        txn.sadd(`${this._roomcachesKey}:processes:field:${field}:${value}`, this.processProperties.processId);
+      } else if (typeof value === 'number'){
+        txn.zadd(`${this._roomcachesKey}:processes:field:${field}`, value, this.processProperties.processId);
+        txn.sadd(`${this._roomcachesKey}:processes:field:${field}:${value}`, this.processProperties.processId);
+      }
+    }
+
     txn.hset(`${this._roomcachesKey}:processes`, this.processProperties.processId, JSON.stringify(this.processProperties));
 
     await txn.exec();
@@ -233,7 +298,7 @@ export class ValkeyDriver implements MatchMakerDriver {
 
     // deregister the process
     txn.hdel(`${this._roomcachesKey}:processes`, this.processProperties.processId);
-    txn.zrem(`${this._roomcachesKey}:processes:score`, this.processProperties.processId);
+    txn.zrem(`${this._roomcachesKey}:processes:field:score`, this.processProperties.processId);
 
     await txn.exec();
 

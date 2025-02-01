@@ -109,7 +109,7 @@ export class RoomData implements RoomCache {
     const txn = this.#client.multi();
 
     // we record the process eligibility score contribution of this room on the process
-    txn.zincrby(`${this.#roomcachesKey}:processes:score`, this.processEligibilityScore - (oldRoomData.processEligibilityScore ?? 0), this.processId);
+    txn.zincrby(`${this.#roomcachesKey}:processes:field:score`, this.processEligibilityScore - (oldRoomData.processEligibilityScore ?? 0), this.processId);
 
 
     // I think we just set the fields here honestly, we don't need to do anything special
@@ -189,7 +189,7 @@ export class RoomData implements RoomCache {
 
       const txn = this.#client.multi();
 
-      txn.zincrby(`${this.#roomcachesKey}:processes:score`, -this.processEligibilityScore, this.roomId);
+      txn.zincrby(`${this.#roomcachesKey}:processes:field:score`, -this.processEligibilityScore, this.roomId);
 
       // remove all of the fields from the field indexes
       for (const field in this.#metadataSchema) {

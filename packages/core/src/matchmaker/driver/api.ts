@@ -74,7 +74,7 @@ export interface RoomCache<Metadata= any> extends IRoomCache {
 
 export interface MatchMakerDriver {
 
-  processProperties: { [field: string]: string };
+  processProperties: { [field: string]: string | number | boolean };
   externalMatchmaker?: boolean; // realistically this should always be defined but since undefined is falsey it works
 
   /**
@@ -127,11 +127,12 @@ export interface MatchMakerDriver {
   /**
    * Query for the processes ordered by their eligibility score
    *
+   * @param conditions - Filtering conditions.
    * @param limit - The maximum number of processIDs to return
    *
    * @returns `string[]` - An array of process ids
    */
-  findProcessesForMatchmaking?(limit:number): Promise<string[]>;
+  queryProcesses?(conditions: {[field: string]:any}, limit:number): Promise<string[]>;
 
   /**
    * Query (and remove from queue) matchmaking requests

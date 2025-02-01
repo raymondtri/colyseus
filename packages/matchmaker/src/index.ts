@@ -1,76 +1,20 @@
 import nanoid from 'nanoid';
 import { matchMaker, MatchMakerDriver, AuthContext } from "@colyseus/core";
-import { hrtime } from "process";
 
 export class Queue {
 
-  private _driver: MatchMakerDriver;
+  driver: MatchMakerDriver;
 
   public readonly queueCreate: boolean = false;
   public readonly targetRoomsPerProcess: number = 10;
 
   constructor(driver: MatchMakerDriver,  options?: any){
-    this._driver = driver;
+    this.driver = driver;
 
-    if(this._driver.externalMatchmaker) throw new Error('External Matchmaking must be set to false on the matchmaker processor, it IS the external matchmaker.')
+    if(this.driver.externalMatchmaker) throw new Error('External Matchmaking must be set to false on the matchmaker processor, it IS the external matchmaker.')
 
     if(options?.queueCreate) this.queueCreate = true;
     if(options?.targetRoomsPerProcess) this.targetRoomsPerProcess = options.targetRoomsPerProcess;
-  }
-
-  async process(){
-    const startTime = hrtime.bigint();
-    // first we need to get all of the rooms that are eligible for matchmaking
-    const eligibleRooms = await this._driver.query({eligibleForMatchmaking: true});
-    const endTime = hrtime.bigint();
-
-    const durationInMilliseconds = Number(endTime - startTime) / 1_000_000;
-    console.log(`Found and deserialized ${eligibleRooms.length} eligible rooms in ${durationInMilliseconds} milliseconds.`)
-
-    // console.log(eligibleRooms)
-    // so now we have all of the rooms that are eligible for matchmaking
-
-    // let's get the requests
-    const requests = await this._driver.spliceMatchmakingRequests();
-    console.log(requests)
-    // and now we have all of the requests that need to be made
-
-    // and now we need to get the processes ranked by eligibility
-    const processes = await this._driver.findProcessesForMatchmaking(requests.length);
-    console.log(processes)
-
-    // TODO matchmake the requests
-
-    // the processes are pre-scored / sorted by their own eligibility based on the rooms and clients they already contain
-    // however we now need a second score here so that processes are assessed based on
-    // the actual room requests that are coming in
-
-    // 1. match up any creates with any processes that are eligible
-    // 2. match up any joins with any rooms that already match the criteria
-    // 3. handle the joinOrCreates, since we can basically transmute them into a join or a create
-
-    // instead of touching the end server directly, because then this could need to handle tens of thousands of open http connections
-    // we should return a response to the client that they should reconnect to the server that is handling their room
-    // and then we need to correct the joinOrCreate to be a join or a create based on the logic ran above
-
-
-    const response = {
-      method: 'create',
-      roomName: 'test',
-      options: {},
-      settings: { // you must return settings so the client can recalibrate
-        hostname: 'localhost',
-        secure: false,
-        pathname: undefined,
-        port: undefined
-      }
-    }
-
-    if(response.method === 'joinOrCreate'){
-      throw new Error("You cannot return a joinOrCreate response from the matchmaker processor. You must return a join or a create.")
-    }
-
-    // this._driver.client.publish(`matchmaking:matches:${requestId}`, JSON.stringify(response));
   }
 
   get queueableMethods(){
@@ -94,14 +38,14 @@ export class Queue {
       connectionReject = reject;
     })
 
-    if(!this._driver.client) connectionReject('No client available to queue the request');
+    if(!this.driver.client) connectionReject('No client available to queue the request');
 
-    this._driver.client.subscribe(`matchmaking:matches:${requestId}`);
-    this._driver.client.on("message", (channel, message) => {
+    this.driver.client.subscribe(`matchmaking:matches:${requestId}`);
+    this.driver.client.on("message", (channel, message) => {
       console.log(channel)
       console.log(message)
 
-      this._driver.client.unsubscribe(`matchmaking:matches:${requestId}`);
+      this.driver.client.unsubscribe(`matchmaking:matches:${requestId}`);
 
       connectionResolve(message)
     })
@@ -125,7 +69,7 @@ export class Queue {
       authOptions
     }
 
-    this._driver.client.sadd(`matchmaking:requests`, JSON.stringify({
+    this.driver.client.sadd(`matchmaking:requests`, JSON.stringify({
       ...args,
       requestId
     }));
@@ -149,16 +93,16 @@ export class Queue {
     // if we purely dispatch create, we need to find which process to create the room in
     // we can do this naively by just grabbing a random eligible room
     if(method === 'create'){
-      processId = await this._driver.findProcessesForMatchmaking(1)[0];
+      processId = await this.driver.findProcessesForMatchmaking(1)[0];
     } else {
-      processId = (await this._driver.query({roomId: roomNameOrID}))[0]?.processId;
+      processId = (await this.driver.query({roomId: roomNameOrID}))[0]?.processId;
     }
 
     if(!processId) throw new Error(`No process found for room ${roomNameOrID}`);
 
     const promise = this.waitForResponse(args);
 
-    await this._driver.client.publish(`matchmaking:methods:${processId}`, JSON.stringify(args));
+    await this.driver.client.publish(`matchmaking:methods:${processId}`, JSON.stringify(args));
 
     return promise;
   }
