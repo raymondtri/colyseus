@@ -190,7 +190,9 @@ export class ValkeyDriver implements MatchMakerDriver {
           }
         })
 
-        processIDs.push(...await this._client.sinter(...sets));
+        const sinter = await this._client.sinter(...sets);
+
+        processIDs.push(...sinter);
       }
 
       // early return because there was a query and nothing returned
@@ -199,9 +201,10 @@ export class ValkeyDriver implements MatchMakerDriver {
       } else {
         const scores = await this._client.zmscore(`${this._roomcachesKey}:processes:field:score`, ...processIDs);
         processIDs.forEach((processId, index) => processScores[processId] = parseInt(scores[index]));
+
       }
     } else { // no filtering conditions, just grab the processes
-      const rankedProcesses = await this._client.zrangebyscore(`${this._roomcachesKey}:processes:field:score`, 0, "+inf", "WITHSCORES", "LIMIT", 0, limit - 1);
+      const rankedProcesses = await this._client.zrangebyscore(`${this._roomcachesKey}:processes:field:score`, 0, "+inf", "WITHSCORES", "LIMIT", 0, limit);
       for (let i = 0; i < rankedProcesses.length; i += 2) {
         const processId = rankedProcesses[i];
         const score = parseInt(rankedProcesses[i + 1]);
@@ -295,13 +298,9 @@ export class ValkeyDriver implements MatchMakerDriver {
     txn.smembers('matchmaking:requests');
     txn.del('matchmaking:requests');
 
-    const [requests, _] = await txn.exec();
+    const [[err, members], _] = await txn.exec();
 
-    if (requests instanceof Error) {
-      throw requests;
-    }
-
-    return requests as string[];
+    return (members as any).map((member) => JSON.parse(member));
   }
 
   public async shutdown(){

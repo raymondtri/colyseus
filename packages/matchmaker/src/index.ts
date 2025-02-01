@@ -2,6 +2,18 @@ import nanoid from 'nanoid';
 import { matchMaker, MatchMakerDriver, AuthContext } from "@colyseus/core";
 import { hrtime } from "process";
 
+export type requestResponse = {
+  roomName: string
+  method: string
+  options: matchMaker.ClientOptions
+  settings: {
+    hostname: string
+    secure: boolean
+    pathname: string | undefined
+    port: number | undefined
+  }
+}
+
 export class Queue {
 
   private _driver: MatchMakerDriver;
@@ -41,13 +53,97 @@ export class Queue {
     const processes = await this._driver.queryProcesses(this.processFilterConditions,requests.length);
     console.log(processes)
 
+    const processMap: { [processId: string]: any } = {};
+
+    processes.forEach((process:any) => {
+      processMap[process.processId] = process;
+    })
+
+    // how do we compare other process information? I really don't know, but for now here's the scors
+    const findProcessinEligibleProcesses = (conditions: any) => {
+      return processes.filter((process:any) => {
+        for (const field in conditions) {
+          if (
+            conditions.hasOwnProperty(field) &&
+            process[field] !== conditions[field]
+          ) {
+            return false;
+          }
+        }
+        return true;
+      }).sort((a:any, b:any) => {
+        return a.score - b.score;
+      })
+    }
+
     // TODO matchmake the requests
 
     // the processes are pre-scored / sorted by their own eligibility based on the rooms and clients they already contain
     // however we now need a second score here so that processes are assessed based on
     // the actual room requests that are coming in
 
+    const creates: requestResponse[] = [];
+
+    /*
+    const findRoomInEligibleRooms = (roomName:string, conditions: any) => {
+      const oldRooms = eligibleRooms.filter((room:any) => {
+        if(room.roomName !== roomName) return false;
+
+        for (const field in conditions) {
+          if (
+            conditions.hasOwnProperty(field) &&
+            room[field] !== conditions[field]
+          ) {
+            return false;
+          }
+        }
+        return true;
+      })
+
+      const newRooms = creates.filter((room:any) => {
+        for (const field in conditions) {
+          if (
+            conditions.hasOwnProperty(field) &&
+          )
+        }
+      })
+    }
+    */
+
+    // I think we have to loop the requests multiple times which is gross but whatever
+    // this is more proof of concept than production ready
     // 1. match up any creates with any processes that are eligible
+    requests.forEach((request:any) => {
+      if(request.method === 'create'){ // we just automatically handle these
+        const process = findProcessinEligibleProcesses({})[0];
+        const url = new URL(process.publicAddress);
+
+        const match = {
+          method: 'create',
+          roomName: request.roomName,
+          options: request.clientOptions,
+          settings: {
+            hostname: url.hostname,
+            secure: url.protocol === 'https:' || url.protocol === 'wss:',
+            pathname: url.pathname,
+            port: url.port ? parseInt(url.port) : undefined
+          }
+        }
+
+        creates.push(match);
+
+        // increment the score here? again, I really don't know, this all feels so custom based on the individual game use case
+        // I really think this whole process piece gets exposed for people to define themself but it's just a part of the template
+        processMap[process.processId].score += 1;
+
+        // and then we dispatch it
+        this._driver.client.publish(`matchmaking:matches:${request.requestId}`, JSON.stringify(match));
+      }
+    })
+
+    // 2. now we match up any joinOrCreates
+
+
     // 2. match up any joins with any rooms that already match the criteria
     // 3. handle the joinOrCreates, since we can basically transmute them into a join or a create
 
@@ -56,6 +152,7 @@ export class Queue {
     // and then we need to correct the joinOrCreate to be a join or a create based on the logic ran above
 
 
+    /*
     const response = {
       method: 'create',
       roomName: 'test',
@@ -71,6 +168,7 @@ export class Queue {
     if(response.method === 'joinOrCreate'){
       throw new Error("You cannot return a joinOrCreate response from the matchmaker processor. You must return a join or a create.")
     }
+    */
 
     // this._driver.client.publish(`matchmaking:matches:${requestId}`, JSON.stringify(response));
   }
@@ -139,8 +237,6 @@ export class Queue {
 
     if(!this.dispatchableMethods.includes(method)) throw new Error(`Method ${method} is not dispatchable.`);
 
-    let processId:string;
-
     const args:any = {
       roomName: roomNameOrID,
       method,
@@ -151,18 +247,44 @@ export class Queue {
     // if we purely dispatch create, we need to find which process to create the room in
     // we can do this naively by just grabbing a random eligible room
     if(method === 'create'){
-      processId = await this._driver.queryProcesses(this.processFilterConditions, 1)[0];
+      const process = (await this._driver.queryProcesses(this.processFilterConditions, 1))[0];
+
+      console.log(process)
+
+      if(!process) throw new Error('No process found to create room in.');
+
+      const url = new URL(process.publicAddress);
+
+      return {
+        roomName: roomNameOrID,
+        method: 'create',
+        options: clientOptions,
+        settings: {
+          hostname: url.hostname,
+          secure: url.protocol === 'https:' || url.protocol === 'wss:',
+          pathname: url.pathname,
+          port: url.port ? parseInt(url.port) : undefined
+        }
+      }
     } else {
-      processId = (await this._driver.query({roomId: roomNameOrID}))[0]?.processId;
+      const room = (await this._driver.query({roomId: roomNameOrID}))[0];
+
+      if(!room) throw new Error(`No room found for room ${roomNameOrID}`);
+
+      const url = new URL(room.publicAddress);
+
+      return {
+        roomName: roomNameOrID,
+        method,
+        options: clientOptions,
+        settings: {
+          hostname: url.hostname,
+          secure: url.protocol === 'https:' || url.protocol === 'wss:',
+          pathname: url.pathname,
+          port: url.port ? parseInt(url.port) : undefined
+        }
+      }
     }
-
-    if(!processId) throw new Error(`No process found for room ${roomNameOrID}`);
-
-    const promise = this.waitForResponse(args);
-
-    await this._driver.client.publish(`matchmaking:methods:${processId}`, JSON.stringify(args));
-
-    return promise;
   }
 
   async invokeMethod(method: string, roomNameOrID: string, clientOptions: matchMaker.ClientOptions, authOptions?: AuthContext){

@@ -6,6 +6,18 @@ export function getLockId(filterOptions: any) {
   return Object.keys(filterOptions).map((key) => `${key}:${filterOptions[key]}`).join("-");
 }
 
+export interface IProcess {
+  createdAt: number;
+  processId: string;
+  publicAddress: string;
+  score: number;
+
+  /**
+   * Additional custom properties
+   */
+  [property: string]: any;
+}
+
 export interface IRoomCache {
   /**
    * Unique identifier for the room.
@@ -132,7 +144,7 @@ export interface MatchMakerDriver {
    *
    * @returns `string[]` - An array of process ids
    */
-  queryProcesses?(conditions: {[field: string]:any}, limit:number): Promise<string[]>;
+  queryProcesses?(conditions: {[field: string]:any}, limit:number): Promise<IProcess[]>;
 
   /**
    * Query (and remove from queue) matchmaking requests
