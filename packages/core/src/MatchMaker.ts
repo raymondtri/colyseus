@@ -106,6 +106,12 @@ export async function setup(
   // ensure processId is set
   if (!processId) { processId = generateId(); }
 
+  driver.processProperties.processId = processId;
+  driver.processProperties.publicAddress = publicAddress;
+  if(driver.register){
+    await driver.register();
+  }
+
   /**
    * Define default `assignRoomToProcessId` method.
    * By default, return the process with least amount of rooms created

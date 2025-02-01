@@ -25,6 +25,8 @@ const RoomCache = mongoose.model<Document>('RoomCache', RoomCacheSchema);
 
 export class MongooseDriver implements MatchMakerDriver {
 
+  processProperties: { [field: string]: string } = {};
+
   constructor(connectionURI?: string) {
 
     if (mongoose.connection.readyState === mongoose.STATES.disconnected) {

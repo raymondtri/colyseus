@@ -17,7 +17,7 @@ import { eligibleForMatchmaking, eligibleForMatchmakingCallback, processEligibil
 export type ValkeyDriverOptions = {
   roomcachesKey?: string;
   metadataSchema?: MetadataSchema;
-  processProperties?: string[];
+  processProperties?: { [field: string]: string };
   externalMatchmaker?: boolean;
   eligibleForMatchmaking?: eligibleForMatchmakingCallback;
   processEligibilityScoreMap?: processEligibilityScoreCallbackMap | processEligibilityScoreCallback;
@@ -27,13 +27,12 @@ export class ValkeyDriver implements MatchMakerDriver {
   private readonly _client: Redis | Cluster;
   private readonly _roomcachesKey: string;
   private readonly _metadataSchema: MetadataSchema;
-  private readonly _processProperties: string[];
   private readonly _eligibleForMatchmaking: eligibleForMatchmakingCallback;
   private readonly _processEligibilityScoreMap: processEligibilityScoreCallbackMap;
 
   private _$localRooms: RoomData[] = [];
-  private _$ownProcessId: string;
 
+  processProperties: { [field: string]: string } = {};
   externalMatchmaker: boolean; // constrain the driver from only looking in local rooms
 
   constructor(valkeyOptions?: ValkeyDriverOptions, options?: number | string | RedisOptions | ClusterNode[], clusterOptions?: ClusterOptions) {
@@ -57,11 +56,7 @@ export class ValkeyDriver implements MatchMakerDriver {
       ...valkeyOptions?.metadataSchema
     }
 
-    this._processProperties = Array.from(new Set([
-      'publicAddress',
-      'processId',
-      ...valkeyOptions?.processProperties || []
-    ]))
+    this.processProperties = valkeyOptions?.processProperties || {};
 
     if(valkeyOptions.eligibleForMatchmaking){
       this._eligibleForMatchmaking = valkeyOptions.eligibleForMatchmaking;
@@ -84,11 +79,7 @@ export class ValkeyDriver implements MatchMakerDriver {
 
   // createInstance is only called by the matchmaker on the same server as the driver
   public createInstance(initialValues: any = {}){
-    if(initialValues.processId){
-      this._$ownProcessId = initialValues.processId; // we just snag this here so it's avaialable on shutdown
-    }
-
-    const room = new RoomData(initialValues, this._client, this._roomcachesKey, this._metadataSchema, this._processProperties, this._eligibleForMatchmaking, this._processEligibilityScoreMap[initialValues.roomName] ?? this._processEligibilityScoreMap['*']);
+    const room = new RoomData(initialValues, this._client, this._roomcachesKey, this._metadataSchema, this._eligibleForMatchmaking, this._processEligibilityScoreMap[initialValues.roomName] ?? this._processEligibilityScoreMap['*']);
 
     this._$localRooms.push(room);
 
@@ -115,8 +106,13 @@ export class ValkeyDriver implements MatchMakerDriver {
   // and in fact, it is recommended that you query the client directly based on your needs for matchmaking filtering
   // this is not adequate for sorting!!!!!!!
   public async query(conditions: Partial<IRoomCache&typeof this._metadataSchema>, sortOptions?: SortOptions){
+
+    // ok if you're using an external matchmaker this gets wild
+    // because create requests (during concurrency) may not have hit the server yet
+
     if(this.externalMatchmaker){
-      return this.$localRooms.filter((room) => {
+      let attempted = 0;
+      const findRoomInLocalRooms = () => this.$localRooms.filter((room) => {
         for (const field in conditions) {
           if (
             conditions.hasOwnProperty(field) &&
@@ -127,6 +123,16 @@ export class ValkeyDriver implements MatchMakerDriver {
         }
         return true;
       });
+
+      let rooms = findRoomInLocalRooms();
+
+      while(rooms.length === 0 && attempted < 10){
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        rooms = findRoomInLocalRooms();
+        attempted++;
+      }
+
+      return rooms;
     }
 
     const roomIDs:string[] = [];
@@ -162,12 +168,25 @@ export class ValkeyDriver implements MatchMakerDriver {
 
   // TODO this needs testing
   public async findProcessesForMatchmaking(limit: number = 0){
-    const processIDs = await this._client.zrange(`${this._roomcachesKey}:processes:score`, 0, "+inf", "LIMIT", 0, limit - 1);
+    const processIDs = await this._client.zrangebyscore(`${this._roomcachesKey}:processes:score`, 0, "+inf", "LIMIT", 0, limit - 1);
 
     if(processIDs.length === 0) return [];
 
     const results = await this._client.hmget(`${this._roomcachesKey}:processes`, ...processIDs);
     return results.filter(result => result).map((processData) => JSON.parse(processData));
+  }
+
+  public async register(){
+    console.log(this.processProperties)
+
+    const txn = this._client.multi();
+
+    txn.zadd(`${this._roomcachesKey}:processes:score`, this.processProperties.defaultScore ?? 0, this.processProperties.processId);
+    txn.hset(`${this._roomcachesKey}:processes`, this.processProperties.processId, JSON.stringify(this.processProperties));
+
+    await txn.exec();
+
+    return
   }
 
   public async cleanup(processId: string){
@@ -213,8 +232,8 @@ export class ValkeyDriver implements MatchMakerDriver {
     const txn = this._client.multi();
 
     // deregister the process
-    txn.hdel(`${this._roomcachesKey}:processes`, this._$ownProcessId);
-    txn.zrem(`${this._roomcachesKey}:processes:score`, this._$ownProcessId);
+    txn.hdel(`${this._roomcachesKey}:processes`, this.processProperties.processId);
+    txn.zrem(`${this._roomcachesKey}:processes:score`, this.processProperties.processId);
 
     await txn.exec();
 

@@ -13,6 +13,9 @@ import { RoomData } from './RoomData.js';
 const ROOMCACHES_KEY = 'roomcaches';
 
 export class RedisDriver implements MatchMakerDriver {
+
+  processProperties: { [field: string]: string } = {};
+
   private readonly _client: Redis | Cluster;
 
   constructor(options?: number | string | RedisOptions | ClusterNode[], clusterOptions?: ClusterOptions) {

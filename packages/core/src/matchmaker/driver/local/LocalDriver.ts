@@ -8,6 +8,9 @@ import { Query } from './Query.js';
 import { RoomData } from './RoomData.js';
 
 export class LocalDriver implements MatchMakerDriver {
+
+  processProperties = {};
+
   public rooms: IRoomCache[] = [];
 
   public createInstance(initialValues: any = {}) {

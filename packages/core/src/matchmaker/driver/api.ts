@@ -74,7 +74,7 @@ export interface RoomCache<Metadata= any> extends IRoomCache {
 
 export interface MatchMakerDriver {
 
-  ownProcessId?: string;
+  processProperties: { [field: string]: string };
   externalMatchmaker?: boolean; // realistically this should always be defined but since undefined is falsey it works
 
   /**
@@ -140,6 +140,12 @@ export interface MatchMakerDriver {
    *
    */
   spliceMatchmakingRequests?(): Promise<string[]>;
+
+  /**
+   * Register a process with the matchmaker
+   *
+   */
+  register?(): Promise<void>;
 
   /**
    * Empty the room cache.

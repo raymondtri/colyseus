@@ -20,7 +20,6 @@ export class RoomData implements RoomCache {
   #client: Redis | Cluster;
   #roomcachesKey: string;
   #metadataSchema: MetadataSchema;
-  #processProperties: string[] = [];
   #eligibleForMatchmaking: eligibleForMatchmakingCallback;
   #processEligibilityScore: processEligibilityScoreCallback;
 
@@ -31,14 +30,12 @@ export class RoomData implements RoomCache {
     client: Redis | Cluster,
     roomcachesKey: string,
     metadataSchema: MetadataSchema,
-    processProperties: string[],
     eligibleForMatchmaking: eligibleForMatchmakingCallback,
     processEligibilityScore: processEligibilityScoreCallback
   ) {
     this.#client = client;
     this.#roomcachesKey = roomcachesKey;
     this.#metadataSchema = metadataSchema;
-    this.#processProperties = processProperties;
     this.#eligibleForMatchmaking = eligibleForMatchmaking;
     this.#processEligibilityScore = processEligibilityScore;
 
@@ -109,29 +106,10 @@ export class RoomData implements RoomCache {
     const oldRoomDataResult = await this.#client.hmget(this.#roomcachesKey, this.roomId);
     const oldRoomData = oldRoomDataResult[0] ? JSON.parse(oldRoomDataResult[0]) : null;
 
-
     const txn = this.#client.multi();
 
-    // go ahead and make sure the process is in the list of processes
-    // these properties must be constant on every room... and they should be.
-    const processProperties:any = {};
-    this.#processProperties.forEach((property) => {
-      if(property.includes(".")){
-        const [parent, child] = property.split(".");
-        if(!processProperties[parent]){
-          processProperties[parent] = {};
-        }
-        processProperties[parent][child] = this[parent][child];
-        return;
-      }
-
-      processProperties[property] = this[property];
-    });
-
-    txn.hset(`${this.#roomcachesKey}:processes`, this.processId, JSON.stringify(processProperties));
-
-    // and then we record the process eligibility score contribution of this room on the process
-    txn.zincrby(`${this.#roomcachesKey}:processes:score`, this.processEligibilityScore - (oldRoomData.processEligibilityScore ?? 0), this.roomId);
+    // we record the process eligibility score contribution of this room on the process
+    txn.zincrby(`${this.#roomcachesKey}:processes:score`, this.processEligibilityScore - (oldRoomData.processEligibilityScore ?? 0), this.processId);
 
 
     // I think we just set the fields here honestly, we don't need to do anything special

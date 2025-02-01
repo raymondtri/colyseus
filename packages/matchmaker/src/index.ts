@@ -37,6 +37,7 @@ export class Queue {
 
     // and now we need to get the processes ranked by eligibility
     const processes = await this._driver.findProcessesForMatchmaking(requests.length);
+    console.log(processes)
 
     // TODO matchmake the requests
 
@@ -51,6 +52,23 @@ export class Queue {
     // instead of touching the end server directly, because then this could need to handle tens of thousands of open http connections
     // we should return a response to the client that they should reconnect to the server that is handling their room
     // and then we need to correct the joinOrCreate to be a join or a create based on the logic ran above
+
+
+    const response = {
+      method: 'create',
+      roomName: 'test',
+      options: {},
+      settings: { // you must return settings so the client can recalibrate
+        hostname: 'localhost',
+        secure: false,
+        pathname: undefined,
+        port: undefined
+      }
+    }
+
+    if(response.method === 'joinOrCreate'){
+      throw new Error("You cannot return a joinOrCreate response from the matchmaker processor. You must return a join or a create.")
+    }
 
     // this._driver.client.publish(`matchmaking:matches:${requestId}`, JSON.stringify(response));
   }
