@@ -125,6 +125,23 @@ export interface MatchMakerDriver {
   findOne(conditions: Partial<IRoomCache>, sortOptions?: SortOptions): Promise<RoomCache>;
 
   /**
+   * Query for the processes ordered by their eligibility score
+   *
+   * @param limit - The maximum number of processIDs to return
+   *
+   * @returns `string[]` - An array of process ids
+   */
+  findProcessesForMatchmaking?(limit:number): Promise<string[]>;
+
+  /**
+   * Query (and remove from queue) matchmaking requests
+   *
+   * @returns `string[]` - An array of matchmaking request ids
+   *
+   */
+  spliceMatchmakingRequests?(): Promise<string[]>;
+
+  /**
    * Empty the room cache.
    */
   clear(): void;

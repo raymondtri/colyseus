@@ -19,9 +19,6 @@ import { Transport } from './Transport.js';
 import { logger, setLogger } from './Logger.js';
 import { setDevMode, isDevMode } from './utils/DevMode.js';
 
-import { ServerError } from './errors/ServerError';
-import { ErrorCode } from './Protocol';
-
 export type ServerOptions = {
   publicAddress?: string,
   presence?: Presence,

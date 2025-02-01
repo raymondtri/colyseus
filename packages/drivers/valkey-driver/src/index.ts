@@ -12,20 +12,24 @@ import {
 import { RoomData } from './RoomData';
 import { MetadataSchema } from './MetadataSchema';
 
-import { eligibleForMatchmaking, eligibleForMatchmakingCallback } from './EligibleForMatchmaking';
+import { eligibleForMatchmaking, eligibleForMatchmakingCallback, processEligibilityScore, processEligibilityScoreCallback, processEligibilityScoreCallbackMap } from './MatchmakingEligibility';
 
 export type ValkeyDriverOptions = {
   roomcachesKey?: string;
   metadataSchema?: MetadataSchema;
+  processProperties?: string[];
   externalMatchmaker?: boolean;
   eligibleForMatchmaking?: eligibleForMatchmakingCallback;
+  processEligibilityScoreMap?: processEligibilityScoreCallbackMap | processEligibilityScoreCallback;
 }
 
 export class ValkeyDriver implements MatchMakerDriver {
   private readonly _client: Redis | Cluster;
   private readonly _roomcachesKey: string;
   private readonly _metadataSchema: MetadataSchema;
+  private readonly _processProperties: string[];
   private readonly _eligibleForMatchmaking: eligibleForMatchmakingCallback;
+  private readonly _processEligibilityScoreMap: processEligibilityScoreCallbackMap;
 
   private _$localRooms: RoomData[] = [];
   private _$ownProcessId: string;
@@ -47,15 +51,30 @@ export class ValkeyDriver implements MatchMakerDriver {
       processId: 'string',
       roomId: 'string',
       eligibleForMatchmaking: 'boolean',
+      processEligibilityScore: 'number',
       createdAt: 'number',
       unlisted: 'boolean',
       ...valkeyOptions?.metadataSchema
     }
 
-    if(!valkeyOptions.eligibleForMatchmaking){
-      this._eligibleForMatchmaking = eligibleForMatchmaking;
-    } else {
+    this._processProperties = Array.from(new Set([
+      'publicAddress',
+      'processId',
+      ...valkeyOptions?.processProperties || []
+    ]))
+
+    if(valkeyOptions.eligibleForMatchmaking){
       this._eligibleForMatchmaking = valkeyOptions.eligibleForMatchmaking;
+    } else {
+      this._eligibleForMatchmaking = eligibleForMatchmaking;
+    }
+
+    if(typeof valkeyOptions.processEligibilityScoreMap === 'function'){
+      this._processEligibilityScoreMap = { '*': valkeyOptions.processEligibilityScoreMap }
+    } else if (valkeyOptions.processEligibilityScoreMap){
+      this._processEligibilityScoreMap = valkeyOptions.processEligibilityScoreMap;
+    } else {
+      this._processEligibilityScoreMap = { '*': processEligibilityScore }
     }
 
     this._client = (Array.isArray(options))
@@ -69,7 +88,7 @@ export class ValkeyDriver implements MatchMakerDriver {
       this._$ownProcessId = initialValues.processId; // we just snag this here so it's avaialable on shutdown
     }
 
-    const room = new RoomData(initialValues, this._client, this._roomcachesKey, this._metadataSchema, this._eligibleForMatchmaking);
+    const room = new RoomData(initialValues, this._client, this._roomcachesKey, this._metadataSchema, this._processProperties, this._eligibleForMatchmaking, this._processEligibilityScoreMap[initialValues.roomName] ?? this._processEligibilityScoreMap['*']);
 
     this._$localRooms.push(room);
 
@@ -141,6 +160,16 @@ export class ValkeyDriver implements MatchMakerDriver {
     return this._client;
   }
 
+  // TODO this needs testing
+  public async findProcessesForMatchmaking(limit: number = 0){
+    const processIDs = await this._client.zrange(`${this._roomcachesKey}:processes:score`, 0, "+inf", "LIMIT", 0, limit - 1);
+
+    if(processIDs.length === 0) return [];
+
+    const results = await this._client.hmget(`${this._roomcachesKey}:processes`, ...processIDs);
+    return results.filter(result => result).map((processData) => JSON.parse(processData));
+  }
+
   public async cleanup(processId: string){
     const cachedRooms = await this.query({processId});
     debugMatchMaking("removing stale rooms by processId %s (%s rooms found)", processId, cachedRooms.length);
@@ -165,9 +194,30 @@ export class ValkeyDriver implements MatchMakerDriver {
     return this.query(conditions)[0];
   }
 
+  // TODO this needs testing too
+  public async spliceMatchmakingRequests(): Promise<string[]> {
+    const txn = this._client.multi(); // keep it atomic
+    txn.smembers('matchmaking:requests');
+    txn.del('matchmaking:requests');
+
+    const [requests, _] = await txn.exec();
+
+    if (requests instanceof Error) {
+      throw requests;
+    }
+
+    return requests as string[];
+  }
+
   public async shutdown(){
+    const txn = this._client.multi();
+
     // deregister the process
-    await this._client.srem(`${this._roomcachesKey}:processes`, this._$ownProcessId);
+    txn.hdel(`${this._roomcachesKey}:processes`, this._$ownProcessId);
+    txn.zrem(`${this._roomcachesKey}:processes:score`, this._$ownProcessId);
+
+    await txn.exec();
+
     // quit the client
     await this._client.quit();
   }

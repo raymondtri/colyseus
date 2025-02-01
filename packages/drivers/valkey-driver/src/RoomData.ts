@@ -2,7 +2,7 @@ import { RoomCache, logger } from "@colyseus/core";
 import Redis, { Cluster } from "iovalkey";
 
 import { MetadataSchema } from "./MetadataSchema";
-import { eligibleForMatchmakingCallback } from "./EligibleForMatchmaking";
+import { eligibleForMatchmakingCallback, processEligibilityScoreCallback } from "./MatchmakingEligibility";
 
 export class RoomData implements RoomCache {
   public clients: number = 0;
@@ -20,7 +20,9 @@ export class RoomData implements RoomCache {
   #client: Redis | Cluster;
   #roomcachesKey: string;
   #metadataSchema: MetadataSchema;
+  #processProperties: string[] = [];
   #eligibleForMatchmaking: eligibleForMatchmakingCallback;
+  #processEligibilityScore: processEligibilityScoreCallback;
 
   removed: boolean = false; // need to access this from the outside
 
@@ -29,12 +31,16 @@ export class RoomData implements RoomCache {
     client: Redis | Cluster,
     roomcachesKey: string,
     metadataSchema: MetadataSchema,
-    eligibleForMatchmaking: eligibleForMatchmakingCallback
+    processProperties: string[],
+    eligibleForMatchmaking: eligibleForMatchmakingCallback,
+    processEligibilityScore: processEligibilityScoreCallback
   ) {
     this.#client = client;
     this.#roomcachesKey = roomcachesKey;
     this.#metadataSchema = metadataSchema;
+    this.#processProperties = processProperties;
     this.#eligibleForMatchmaking = eligibleForMatchmaking;
+    this.#processEligibilityScore = processEligibilityScore;
 
     this.createdAt = (initialValues && initialValues.createdAt)
       ? new Date(initialValues.createdAt)
@@ -79,6 +85,14 @@ export class RoomData implements RoomCache {
     return;
   }
 
+  get processEligibilityScore(){
+    return this.#processEligibilityScore(this);
+  }
+
+  set processEligibilityScore(value: number){ // do nothing here, very important because this should be a dynamic value
+    return;
+  }
+
   public async save() {
     // skip if already removed.
     if (this.removed) {
@@ -99,7 +113,26 @@ export class RoomData implements RoomCache {
     const txn = this.#client.multi();
 
     // go ahead and make sure the process is in the list of processes
-    txn.sadd(`${this.#roomcachesKey}:processes`, this.processId);
+    // these properties must be constant on every room... and they should be.
+    const processProperties:any = {};
+    this.#processProperties.forEach((property) => {
+      if(property.includes(".")){
+        const [parent, child] = property.split(".");
+        if(!processProperties[parent]){
+          processProperties[parent] = {};
+        }
+        processProperties[parent][child] = this[parent][child];
+        return;
+      }
+
+      processProperties[property] = this[property];
+    });
+
+    txn.hset(`${this.#roomcachesKey}:processes`, this.processId, JSON.stringify(processProperties));
+
+    // and then we record the process eligibility score contribution of this room on the process
+    txn.zincrby(`${this.#roomcachesKey}:processes:score`, this.processEligibilityScore - (oldRoomData.processEligibilityScore ?? 0), this.roomId);
+
 
     // I think we just set the fields here honestly, we don't need to do anything special
     // then we go through and run SINTER to create a new intersection on the fly?
@@ -177,6 +210,8 @@ export class RoomData implements RoomCache {
       const fieldKey = `${this.#roomcachesKey}:field`;
 
       const txn = this.#client.multi();
+
+      txn.zincrby(`${this.#roomcachesKey}:processes:score`, -this.processEligibilityScore, this.roomId);
 
       // remove all of the fields from the field indexes
       for (const field in this.#metadataSchema) {
