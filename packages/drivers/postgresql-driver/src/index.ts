@@ -290,7 +290,7 @@ export class PostgresDriver implements MatchMakerDriver {
     const client = await this._client.connect();
 
     // now we actually subscribe to the pgnotify for the request
-    client.query(`LISTEN queue:${requestId}`)
+    client.query(`LISTEN queue_${requestId}`)
       .then((outcome) => connectionResolve(outcome))
       .catch((error) => connectionReject(error))
       .finally(() => client.release());
@@ -298,7 +298,7 @@ export class PostgresDriver implements MatchMakerDriver {
     // and finally we add the request to the queue by calling the enqueue function
     await client.query(`
       SELECT enqueue($1, $2, $3, $4, $5);
-      `, [method, roomNameOrId, requestId, JSON.stringify(clientOptions), JSON.stringify(authOptions)]);
+      `, [method, roomNameOrId, requestId, JSON.stringify(clientOptions), authOptions ? JSON.stringify(authOptions) : null]);
 
     return promise;
   }
