@@ -17,10 +17,7 @@ export class RoomData implements RoomCache {
 
   public createdAt: Date;
 
-  public metadata: { [field: string]: number | string | boolean } = {};
-
-  roomSchema: string[];
-  roomProperties: { [field: string]: any } = {};
+  public metadata: { [field: string]: any } = {};
 
   #client: Pool;
   #roomTableName: string;
@@ -29,8 +26,12 @@ export class RoomData implements RoomCache {
   removed: boolean = false;
 
   constructor(
-    roomProperties: { [field: string]: any },
-    roomSchema: string[],
+    roomProperties: {
+      roomId: string,
+      processId: string,
+      name: string,
+      [field: string]: any
+    },
     roomTableName: string,
     client: Pool,
     eligibleForMatchmaking: eligibleForMatchmakingCallback
@@ -38,32 +39,23 @@ export class RoomData implements RoomCache {
     this.#eligibleForMatchmaking = eligibleForMatchmaking;
     this.#client = client;
     this.#roomTableName = roomTableName;
-    this.roomSchema = roomSchema;
+
+    this.roomId = roomProperties.roomId;
+    this.processId = roomProperties.processId;
+    this.name = roomProperties.name;
+
+    if(roomProperties.clients) this.clients = roomProperties.clients;
+    if(roomProperties.maxClients) this.maxClients = roomProperties.maxClients;
+
+    if(roomProperties.locked) this.locked = roomProperties.locked;
+    if(roomProperties.unlisted) this.unlisted = roomProperties.unlisted;
+    if(roomProperties.private) this.private = roomProperties.private;
+
+    if(roomProperties.metadata) this.metadata = roomProperties.metadata;
 
     this.createdAt = (roomProperties && roomProperties.created_at)
       ? new Date(roomProperties.created_at)
       : new Date();
-
-    Object.keys(roomProperties).forEach((field) => {
-      if(field === 'eligibleForMatchmaking') return;
-
-      if(field === 'roomId') {
-        this.roomId = roomProperties[field];
-        return;
-      }
-
-      if(this.roomSchema.includes(field)) {
-        this[field] = roomProperties[field];
-      } else {
-        this.metadata[field] = roomProperties[field];
-
-        // then we dynamically build a getter and setter
-        Object.defineProperty(this, field, {
-          get: () => this.metadata[field],
-          set: (value) => this.metadata[field] = value
-        })
-      }
-    })
   }
 
   get eligibleForMatchmaking(){
@@ -76,39 +68,29 @@ export class RoomData implements RoomCache {
 
   public async save(){
     if (this.removed) return;
-    if (!this.roomId) {
-      logger.error("PostgresqlDriver: RoomData.save() - roomId is required.");
-      return;
-    }
-
-    const payload:{ [field: string]: boolean | string | number | Date } = {
-      id: this.roomId,
-      processId: this.processId,
-      name: this.name,
-      clients: this.clients,
-      maxClients: this.maxClients,
-      locked: this.locked,
-      unlisted: this.unlisted,
-      private: this.private,
-      eligibleForMatchmaking: this.eligibleForMatchmaking,
-      createdAt: this.createdAt,
-      metadata: JSON.stringify(this.metadata)
-    }
 
     // insert into room table
-
     const client = await this.#client.connect();
 
-    const { rowCount } = await client.query(`
-      INSERT INTO ${this.#roomTableName} ("${Object.keys(payload).join('","')}")
-      VALUES (${Object.values(payload).map((value, i) => `$${i + 1}`).join(',')});
-    `, Object.values(payload));
+    // we use functions here because this allows the driver to remain a black box
+    // and the end developer can simply create a different function
+    await client.query(`
+      SELECT insert_room($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
+    `, [
+      this.roomId,
+      this.processId,
+      this.name,
+      this.clients,
+      this.maxClients,
+      this.locked,
+      this.unlisted,
+      this.private,
+      this.eligibleForMatchmaking,
+      this.createdAt,
+      JSON.stringify(this.metadata)
+    ]);
 
     client.release();
-
-    if(rowCount === 0){
-      logger.error("PostgresDriver: failed to save room data");
-    }
 
     return;
   }

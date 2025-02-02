@@ -14,15 +14,16 @@ import { RoomData } from './RoomData';
 import { eligibleForMatchmaking, eligibleForMatchmakingCallback } from './MatchmakingEligibility';
 import { AuthContext } from '@colyseus/core/src';
 
+export type ProcessProperties = {
+  [field: string] : any
+}
+
 export type PostgresDriverOptions = {
   roomTableName?: string;
   processTableName?: string;
   queueTableName?: string;
 
-  processSchema?: string[];
-  roomSchema?: string[];
-
-  processProperties?: { [field: string] : any};
+  processProperties?: ProcessProperties;
 
   createBehavior?: 'queue' | 'dispatch';
 
@@ -41,16 +42,13 @@ export class PostgresDriver implements MatchMakerDriver {
   processTableName: string;
   queueTableName: string;
 
-  processSchema?: string[];
-  roomSchema?: string[];
-
   createBehavior: 'queue' | 'dispatch';
 
   processProperties: { [field: string] : any};
 
   externalMatchmaker: boolean;
 
-  constructor(client: string, options: PostgresDriverOptions = {}) {
+  constructor(client: string, options: PostgresDriverOptions) {
     this._client = new Pool({
       connectionTimeoutMillis: 15000, // need adequate time for queue to respond
       idleTimeoutMillis: 5000, // keep it short because once a process is 'settled' there shouldn't be many updates to the db
@@ -62,44 +60,12 @@ export class PostgresDriver implements MatchMakerDriver {
     this.processTableName = options.processTableName || 'process';
     this.queueTableName = options.queueTableName || 'queue';
 
-    this.processSchema = Array.from(new Set([
-      'id',
-      'publicAddress',
-      'secure',
-      'pathname',
-      'locked',
-      'metadata',
-      'createdAt',
-      'updatedAt',
-      ...options.processSchema || [],
-    ]));
-
-    this.roomSchema = Array.from(new Set([
-      'id',
-      'processId',
-      'name',
-      'clients',
-      'maxClients',
-      'locked',
-      'unlisted',
-      'private',
-      'eligibleForMatchmaking',
-      'metadata',
-      'createdAt',
-      'updatedAt',
-      ...options.roomSchema || [],
-    ]))
-
     this.createBehavior = options.createBehavior || 'dispatch';
 
     this.processProperties = options.processProperties || {};
 
     this.externalMatchmaker = options.externalMatchmaker || false;
     this._eligibleForMatchmaking = options.eligibleForMatchmaking || eligibleForMatchmaking;
-  }
-
-  get canQuery() {
-    return this.processSchema && this.roomSchema;
   }
 
   get client(){
@@ -114,32 +80,6 @@ export class PostgresDriver implements MatchMakerDriver {
     return ['joinById', 'reconnect'].concat(this.createBehavior === 'dispatch' ? ['create'] : []);
   }
 
-  // we need to connect from the client and then we actually load the schema FROM postgres if it's not defined
-  public async loadSchema () {
-
-    const client = await this._client.connect();
-
-    // load process schema from postgres
-    const { rows: processSchema } = await client.query(`
-      SELECT column_name, data_type
-      FROM information_schema.columns
-      WHERE table_name = '${this.processTableName}';
-    `);
-
-    this.processSchema = processSchema.map((row: any) => row.column_name);
-
-    // load room schema from postgres
-    const { rows: roomSchema } = await client.query(`
-      SELECT column_name, data_type
-      FROM information_schema.columns
-      WHERE table_name = '${this.roomTableName}';
-    `);
-
-    client.release();
-
-    this.roomSchema = roomSchema.map((row: any) => row.column_name);
-  }
-
   // Begin process-level things
   public async register(){
     if(!this.processProperties.processId){
@@ -150,46 +90,23 @@ export class PostgresDriver implements MatchMakerDriver {
       logger.error("PostgresDriver: publicAddress is required in processProperties");
     }
 
-    const payload:{ [field: string]: boolean | string | number | Date } = {
-      id: this.processProperties.processId,
-      publicAddress: this.processProperties.publicAddress,
-      secure: this.processProperties.secure || false,
-      pathname: this.processProperties.pathname || '',
-      locked: this.processProperties.locked || false,
-      createdAt: new Date(),
-    }
-
-    let metadata: any = {};
-
-    // now we need to take a look at the schema and see if we need to add any other fields
-    Object.keys(this.processProperties).forEach((field) => {
-      if(field === 'processId') return;
-
-      if(!this.processSchema.includes(field)){
-        metadata[field] = this.processProperties[field];
-      } else if (field === 'metadata'){
-        metadata = { ...metadata, ...this.processProperties.metadata };
-      } else if (!payload.hasOwnProperty(field)){
-        payload[field] = this.processProperties[field];
-      }
-    })
-
-    payload.metadata = JSON.stringify(metadata);
-
     // insert into process table
 
     const client = await this._client.connect();
 
-    const { rowCount } = await client.query(`
-      INSERT INTO ${this.processTableName} ("${Object.keys(payload).join('","')}")
-      VALUES (${Object.values(payload).map((value, i) => `$${i + 1}`).join(',')});
-    `, Object.values(payload));
+    await client.query(`
+      SELECT insert_process($1, $2, $3, $4, $5, $6)`,
+      [
+      this.processProperties.processId,
+      this.processProperties.publicAddress,
+      this.processProperties.secure || true,
+      this.processProperties.pathname || '/',
+      this.processProperties.locked || false,
+      JSON.stringify(this.processProperties.metadata ?? {})
+      ]
+    );
 
-    await client.release();
-
-    if(rowCount === 0){
-      logger.error("PostgresDriver: failed to register process");
-    }
+    client.release();
 
     return;
   }
@@ -252,7 +169,7 @@ export class PostgresDriver implements MatchMakerDriver {
   // begin room-level things
   // usage is that it is saved after this function is called
   public createInstance(roomProperties: any = {}){
-    const room = new RoomData(roomProperties, this.roomSchema, this.roomTableName, this._client, this._eligibleForMatchmaking);
+    const room = new RoomData(roomProperties, this.roomTableName, this._client, this._eligibleForMatchmaking);
     this._$localRooms.push(room)
 
     return this._$localRooms[this._$localRooms.length - 1];

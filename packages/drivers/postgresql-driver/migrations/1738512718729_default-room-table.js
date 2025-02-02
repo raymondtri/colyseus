@@ -133,14 +133,5 @@ exports.down = (pgm) => {
   pgm.dropTrigger('room', 'set_updated_at', {
     ifExists: true
   });
-  pgm.dropIndex('room', 'processId');
-  pgm.dropIndex('room', 'clients');
-  pgm.dropIndex('room', 'name');
-  pgm.dropIndex('room', 'maxClients');
-  pgm.dropIndex('room', 'locked');
-  pgm.dropIndex('room', 'unlisted');
-  pgm.dropIndex('room', 'eligibleForMatchmaking');
-  pgm.dropIndex('room', 'createdAt');
-  pgm.dropIndex('room', 'updatedAt');
   pgm.dropTable('room');
 };

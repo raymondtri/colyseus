@@ -76,9 +76,6 @@ exports.up = (pgm) => {
  * @returns {Promise<void> | void}
  */
 exports.down = (pgm) => {
-  pgm.dropIndex('process', 'idx_process_locked');
-  pgm.dropIndex('process', 'idx_process_created_at');
-  pgm.dropIndex('process', 'idx_process_updated_at');
   pgm.dropTrigger('process', 'set_updated_at', {
     ifExists: true
   });

@@ -14,7 +14,7 @@ exports.up = (pgm) => {
     language: 'plpgsql',
   }, `
     BEGIN
-      SELECT * FROM process WHERE id = (SELECT processId FROM room WHERE id = roomid);
+      SELECT * FROM process WHERE id = (SELECT "processId" FROM room WHERE id = roomid);
     END;
   `);
 };

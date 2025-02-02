@@ -14,7 +14,8 @@ exports.up = (pgm) => {
     language: 'plpgsql',
   }, `
     BEGIN
-      INSERT INTO queue (id, method, roomName, clientOptions, authOptions) VALUES (id, method, roomName, clientOptions, authOptions);
+      INSERT INTO queue (id, method, "roomName", "clientOptions", "authOptions")
+      VALUES (id, method, roomName, clientOptions, authOptions);
     END;
   `);
 };

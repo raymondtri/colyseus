@@ -55,7 +55,5 @@ exports.up = (pgm) => {
  * @returns {Promise<void> | void}
  */
 exports.down = (pgm) => {
-  pgm.dropIndex('queue', 'idx_queue_created_at');
-  pgm.dropIndex('queue', 'idx_queue_room_name');
   pgm.dropTable('queue');
 };
