@@ -118,8 +118,8 @@ export class PostgresDriver implements MatchMakerDriver {
 
     const { rowCount } = await client.query(`
       DELETE FROM ${this.processTableName}
-      WHERE id = ${this.processProperties.processId};
-    `);
+      WHERE id = $1;
+    `, [this.processProperties.processId]);
 
     client.release();
 
@@ -138,8 +138,8 @@ export class PostgresDriver implements MatchMakerDriver {
 
     await client.query(`
       DELETE FROM ${this.roomTableName}
-      WHERE "processId" = ${processId};
-    `)
+      WHERE "processId" = $1;
+    `, [processId]);
 
     client.release();
 
@@ -184,8 +184,8 @@ export class PostgresDriver implements MatchMakerDriver {
 
     const { rowCount } = await client.query(`
       SELECT id FROM ${this.roomTableName}
-      WHERE id = ${roomId};
-    `)
+      WHERE id = $1;
+    `, [roomId]);
 
     client.release();
 
@@ -296,7 +296,9 @@ export class PostgresDriver implements MatchMakerDriver {
       .finally(() => client.release());
 
     // and finally we add the request to the queue by calling the enqueue function
-    await client.query(`SELECT enqueue('${method}', '${roomNameOrId}', '${requestId}', '${JSON.stringify(clientOptions)}', '${JSON.stringify(authOptions)}')`);
+    await client.query(`
+      SELECT enqueue($1, $2, $3, $4, $5);
+      `, [method, roomNameOrId, requestId, JSON.stringify(clientOptions), JSON.stringify(authOptions)]);
 
     return promise;
   }
