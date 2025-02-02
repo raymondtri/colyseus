@@ -30,8 +30,7 @@ exports.up = (pgm) => {
     },
     authOptions: {
       type: 'jsonb',
-      notNull: true,
-      default: '{}'
+      notNull: false
     },
     createdAt: {
       type: 'timestamp',
