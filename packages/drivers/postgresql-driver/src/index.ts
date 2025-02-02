@@ -1,5 +1,5 @@
 import nanoid from 'nanoid';
-import { Client } from 'pg';
+import { Pool } from 'pg';
 
 import {
   IRoomCache,
@@ -32,7 +32,7 @@ export type PostgresDriverOptions = {
 
 export class PostgresDriver implements MatchMakerDriver {
 
-  private readonly _client: Client;
+  private readonly _client: Pool;
   private readonly _eligibleForMatchmaking: eligibleForMatchmakingCallback;
 
   private _$localRooms: RoomData[] = [];
@@ -50,8 +50,13 @@ export class PostgresDriver implements MatchMakerDriver {
 
   externalMatchmaker: boolean;
 
-  constructor(client: Client, options: PostgresDriverOptions = {}) {
-    this._client = client;
+  constructor(client: string, options: PostgresDriverOptions = {}) {
+    this._client = new Pool({
+      connectionTimeoutMillis: 15000, // need adequate time for queue to respond
+      idleTimeoutMillis: 5000, // keep it short because once a process is 'settled' there shouldn't be many updates to the db
+      connectionString: client,
+      max: 3 // more than 3 per process is crazy
+    });
 
     this.roomTableName = options.roomTableName || 'room';
     this.processTableName = options.processTableName || 'process';
@@ -111,8 +116,11 @@ export class PostgresDriver implements MatchMakerDriver {
 
   // we need to connect from the client and then we actually load the schema FROM postgres if it's not defined
   public async loadSchema () {
+
+    const client = await this._client.connect();
+
     // load process schema from postgres
-    const { rows: processSchema } = await this._client.query(`
+    const { rows: processSchema } = await client.query(`
       SELECT column_name, data_type
       FROM information_schema.columns
       WHERE table_name = '${this.processTableName}';
@@ -121,11 +129,13 @@ export class PostgresDriver implements MatchMakerDriver {
     this.processSchema = processSchema.map((row: any) => row.column_name);
 
     // load room schema from postgres
-    const { rows: roomSchema } = await this._client.query(`
+    const { rows: roomSchema } = await client.query(`
       SELECT column_name, data_type
       FROM information_schema.columns
       WHERE table_name = '${this.roomTableName}';
     `);
+
+    client.release();
 
     this.roomSchema = roomSchema.map((row: any) => row.column_name);
   }
@@ -168,10 +178,14 @@ export class PostgresDriver implements MatchMakerDriver {
 
     // insert into process table
 
-    const { rowCount } = await this._client.query(`
-      INSERT INTO ${this.processTableName} (${Object.keys(payload).join(',')})
-      VALUES (${Object.values(payload).join(',')});
-    `);
+    const client = await this._client.connect();
+
+    const { rowCount } = await client.query(`
+      INSERT INTO ${this.processTableName} ("${Object.keys(payload).join('","')}")
+      VALUES (${Object.values(payload).map((value, i) => `$${i + 1}`).join(',')});
+    `, Object.values(payload));
+
+    await client.release();
 
     if(rowCount === 0){
       logger.error("PostgresDriver: failed to register process");
@@ -180,21 +194,57 @@ export class PostgresDriver implements MatchMakerDriver {
     return;
   }
 
+  // what is
   public async shutdown(){
-    const { rowCount } = await this._client.query(`
+
+    const client = await this._client.connect();
+
+    const { rowCount } = await client.query(`
       DELETE FROM ${this.processTableName}
       WHERE id = ${this.processProperties.processId};
     `);
+
+    client.release();
 
     if(rowCount === 0){
       logger.error("PostgresDriver: failed to shutdown process");
     }
 
+    await this._client.end(); // we can safely terminate the pool
+
     return;
   }
 
-  public clear(){
-    // eh?
+  // cleanup is to remove all rooms associated with the process
+  public async cleanup(processId: string){
+    const client = await this._client.connect();
+
+    await client.query(`
+      DELETE FROM ${this.roomTableName}
+      WHERE "processId" = ${processId};
+    `)
+
+    client.release();
+
+    this._$localRooms = [];
+  }
+
+  public async clear(){
+    const client = await this._client.connect();
+
+    await client.query(`
+      TRUNCATE ${this.processTableName} CASCADE;
+    `)
+
+    await client.query(`
+      TRUNCATE ${this.roomTableName} CASCADE;
+    `)
+
+    await client.query(`
+      TRUNCATE ${this.queueTableName} CASCADE;
+    `)
+
+    client.release();
   }
 
   // end process-level things
@@ -202,7 +252,7 @@ export class PostgresDriver implements MatchMakerDriver {
   // begin room-level things
   // usage is that it is saved after this function is called
   public createInstance(roomProperties: any = {}){
-    const room = new RoomData(roomProperties, this._client, this.roomTableName, this.roomSchema, this._eligibleForMatchmaking);
+    const room = new RoomData(roomProperties, this.roomSchema, this.roomTableName, this._client, this._eligibleForMatchmaking);
     this._$localRooms.push(room)
 
     return this._$localRooms[this._$localRooms.length - 1];
@@ -213,10 +263,14 @@ export class PostgresDriver implements MatchMakerDriver {
       return this._$localRooms.some((room) => room.roomId === roomId);
     }
 
-    const { rowCount } = await this._client.query(`
+    const client = await this._client.connect();
+
+    const { rowCount } = await client.query(`
       SELECT id FROM ${this.roomTableName}
       WHERE id = ${roomId};
     `)
+
+    client.release();
 
     return rowCount > 0;
   }
@@ -278,17 +332,24 @@ export class PostgresDriver implements MatchMakerDriver {
       throw new Error("PostgresDriver: dispatchMethod is not available when using an external matchmaker");
     }
 
+    const client = await this._client.connect();
+
     if(method === 'create'){
       // this gets weird because we have to run the whole queryProcessesBy thing
       // TODO
-    } else {
-      const { processes } = await this._client.query(`SELECT process_by_room_id('${roomNameOrID}')`);
 
-      if(processes.length === 0){
+      client.release();
+
+    } else {
+      const { rows } = await client.query(`SELECT process_by_room_id('${roomNameOrID}')`);
+
+      if(rows.length === 0){
         throw new Error("PostgresDriver: no processes available to dispatch to");
       }
 
-      const process = processes[0];
+      const process = rows[0];
+
+      client.release();
 
       return process;
     }
@@ -309,13 +370,16 @@ export class PostgresDriver implements MatchMakerDriver {
       connectionReject = reject;
     })
 
+    const client = await this._client.connect();
+
     // now we actually subscribe to the pgnotify for the request
-    this._client.query(`LISTEN queue:${requestId}`)
+    client.query(`LISTEN queue:${requestId}`)
       .then((outcome) => connectionResolve(outcome))
-      .catch((error) => connectionReject(error));
+      .catch((error) => connectionReject(error))
+      .finally(() => client.release());
 
     // and finally we add the request to the queue by calling the enqueue function
-    await this._client.query(`SELECT enqueue('${method}', '${roomNameOrId}', '${requestId}', '${JSON.stringify(clientOptions)}', '${JSON.stringify(authOptions)}')`);
+    await client.query(`SELECT enqueue('${method}', '${roomNameOrId}', '${requestId}', '${JSON.stringify(clientOptions)}', '${JSON.stringify(authOptions)}')`);
 
     return promise;
   }

@@ -1,5 +1,5 @@
 import { RoomCache, logger } from "@colyseus/core";
-import { Client } from 'pg';
+import { Pool } from 'pg';
 
 import { eligibleForMatchmakingCallback } from './MatchmakingEligibility';
 
@@ -22,7 +22,7 @@ export class RoomData implements RoomCache {
   roomSchema: string[];
   roomProperties: { [field: string]: any } = {};
 
-  #client: Client;
+  #client: Pool;
   #roomTableName: string;
   #eligibleForMatchmaking: eligibleForMatchmakingCallback;
 
@@ -32,7 +32,7 @@ export class RoomData implements RoomCache {
     roomProperties: { [field: string]: any },
     roomSchema: string[],
     roomTableName: string,
-    client: Client,
+    client: Pool,
     eligibleForMatchmaking: eligibleForMatchmakingCallback
   ) {
     this.#eligibleForMatchmaking = eligibleForMatchmaking;
@@ -97,10 +97,14 @@ export class RoomData implements RoomCache {
 
     // insert into room table
 
-    const { rowCount } = await this.#client.query(`
-      INSERT INTO ${this.#roomTableName} (${Object.keys(payload).join(',')})
-      VALUES (${Object.values(payload).join(',')});
-    `);
+    const client = await this.#client.connect();
+
+    const { rowCount } = await client.query(`
+      INSERT INTO ${this.#roomTableName} ("${Object.keys(payload).join('","')}")
+      VALUES (${Object.values(payload).map((value, i) => `$${i + 1}`).join(',')});
+    `, Object.values(payload));
+
+    client.release();
 
     if(rowCount === 0){
       logger.error("PostgresDriver: failed to save room data");
@@ -133,10 +137,14 @@ export class RoomData implements RoomCache {
 
     this.removed = true;
 
-    const { rowCount } = await this.#client.query(`
+    const client = await this.#client.connect();
+
+    const { rowCount } = await client.query(`
       DELETE FROM ${this.#roomTableName}
       WHERE id = ${this.roomId};
     `);
+
+    client.release();
 
     if(rowCount === 0){
       logger.error("PostgresDriver: failed to remove room data");

@@ -7,9 +7,8 @@
   "typings": "./build/index.d.ts",
   "dependencies": {
     "@colyseus/core": "workspace:^",
-    "nanoid": "^2.0.0",
-    "pg": "^8.13.1",
-    "postgres": "^3.4.5"
+    "nanoid": "^2.1.11",
+    "pg": "^8.13.1"
   },
   "author": "Ray Tri, Endel Dreyer",
   "license": "MIT",
@@ -34,6 +33,7 @@
     "access": "public"
   },
   "devDependencies": {
+    "@types/pg": "^8.11.11",
     "node-pg-migrate": "^7.9.0"
   },
   "scripts": {
