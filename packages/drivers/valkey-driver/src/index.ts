@@ -46,7 +46,6 @@ export class ValkeyDriver implements MatchMakerDriver {
       private: 'boolean',
       maxClients: 'number',
       name: 'string',
-      publicAddress: 'string',
       processId: 'string',
       roomId: 'string',
       eligibleForMatchmaking: 'boolean',
