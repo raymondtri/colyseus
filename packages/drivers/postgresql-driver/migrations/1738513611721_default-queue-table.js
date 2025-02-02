@@ -10,7 +10,11 @@ exports.shorthands = undefined;
  */
 exports.up = (pgm) => {
   pgm.createTable('queue', {
-    id: 'id',
+    id: {
+      type: 'varchar(9)',
+      notNull: true,
+      primaryKey: true
+    },
     method: {
       type: 'varchar(255)',
       notNull: true
