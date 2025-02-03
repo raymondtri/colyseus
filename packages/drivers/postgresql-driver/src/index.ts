@@ -253,22 +253,32 @@ export class PostgresDriver implements MatchMakerDriver {
 
     if(method === 'create'){
       // this gets weird because we have to run the whole queryProcessesBy thing
-      // TODO
-
-      client.release();
-
-    } else {
-      const { rows } = await client.query(`SELECT process_by_room_id('${roomNameOrID}')`);
+      const { rows } = await client.query(`SELECT process_by_suitability($1, $2, $3, $4, $5)`, [
+        method,
+        roomNameOrID,
+        JSON.stringify(clientOptions),
+        authOptions ? JSON.stringify(authOptions) : null,
+        1
+      ])
 
       if(rows.length === 0){
         throw new Error("PostgresDriver: no processes available to dispatch to");
       }
 
-      const process = rows[0];
+      client.release();
+
+      return rows[0];
+
+    } else {
+      const { rows } = await client.query(`SELECT process_by_room_id('${roomNameOrID}')`);
 
       client.release();
 
-      return process;
+      if(rows.length === 0){
+        throw new Error("PostgresDriver: no processes available to dispatch to");
+      }
+
+      return rows[0];
     }
   }
 
@@ -290,10 +300,21 @@ export class PostgresDriver implements MatchMakerDriver {
     const client = await this._client.connect();
 
     // now we actually subscribe to the pgnotify for the request
-    client.query(`LISTEN queue_${requestId}`)
-      .then((outcome) => connectionResolve(outcome))
-      .catch((error) => connectionReject(error))
-      .finally(() => client.release());
+    client.addListener(`queue_${requestId}`, (payload) => {
+      connectionResolve({
+        err: null,
+        payload: JSON.parse(payload)
+      });
+      client.release();
+    });
+
+    setTimeout(() => {
+      connectionReject({
+        err: "PostgresDriver: timeout",
+        payload: null
+      });
+      client.release();
+    }, 15000);
 
     // and finally we add the request to the queue by calling the enqueue function
     await client.query(`
