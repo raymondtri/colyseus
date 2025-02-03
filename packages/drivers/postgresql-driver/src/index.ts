@@ -260,6 +260,13 @@ export class PostgresDriver implements MatchMakerDriver {
         authOptions ? JSON.stringify(authOptions) : null,
         1
       ])
+      // we probably need to do something about casting these functions back
+      // but that's fine for now
+      /*
+        {
+          process_by_suitability: '(QyXU9uOkg,127.0.0.1:2567,t,/,f,"{""taskId"": ""task-1"", ""clusterArn"": ""cluster-1""}","2025-02-03 00:21:34.69768","2025-02-03 00:21:34.69768",0)'
+        }
+      */
 
       if(rows.length === 0){
         throw new Error("PostgresDriver: no processes available to dispatch to");

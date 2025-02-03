@@ -10,19 +10,21 @@ exports.shorthands = undefined;
  */
 exports.up = (pgm) => {
   pgm.createFunction('process_by_suitability', ['method varchar(255)', 'roomName varchar(255)', 'clientOptions jsonb', 'authOptions jsonb', 'quantity integer'], {
-    returns: 'SETOF process',
+    returns: 'TABLE(id varchar(9), publicAddress varchar(42), secure boolean, pathname varchar(255), locked boolean, metadata jsonb, createdAt timestamp, updatedAt timestamp, count bigint)',
     language: 'plpgsql'
   }, `
     BEGIN
       RETURN QUERY
-        SELECT * FROM process
-        WHERE id IN (
-          SELECT "processId"
-          FROM rooms
+        WITH process_count AS (
+          SELECT "processId", COUNT(clients) AS count
+          FROM room
           GROUP BY "processId"
-          ORDER BY COUNT(clients) ASC
-          LIMIT quantity
-        );
+        )
+
+        SELECT p.id, p."publicAddress", p.secure, p.pathname, p.locked, p.metadata, p."createdAt", p."updatedAt", COALESCE(pc.count, 0) as count
+        FROM process p
+        LEFT JOIN process_count pc ON p.id = pc."processId"
+        WHERE p.locked = false;
     END;
   `)
 };
