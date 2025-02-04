@@ -16,7 +16,7 @@ exports.up = (pgm) => {
     BEGIN
       INSERT INTO room (id, "processId", name, clients, "maxClients", locked, unlisted, private, "eligibleForMatchmaking", metadata)
       VALUES (roomId, processId, name, clients, maxClients, locked, unlisted, private, eligibleForMatchmaking, metadata)
-      ON CONFLICT (id) DO NOTHING;
+      ON CONFLICT (id) DO UPDATE SET "processId" = EXCLUDED."processId", name = EXCLUDED.name, clients = EXCLUDED.clients, "maxClients" = EXCLUDED."maxClients", locked = EXCLUDED.locked, unlisted = EXCLUDED.unlisted, private = EXCLUDED.private, "eligibleForMatchmaking" = EXCLUDED."eligibleForMatchmaking", metadata = EXCLUDED.metadata;
     END;
   `);
 };

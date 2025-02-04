@@ -16,7 +16,7 @@ exports.up = (pgm) => {
     BEGIN
       INSERT INTO process (id, "publicAddress", secure, pathname, locked, metadata)
       VALUES (processId, publicAddress, secure, pathname, locked, metadata)
-      ON CONFLICT (id) DO NOTHING;
+      ON CONFLICT (id) DO UPDATE SET "publicAddress" = EXCLUDED."publicAddress", secure = EXCLUDED.secure, pathname = EXCLUDED.pathname, locked = EXCLUDED.locked, metadata = EXCLUDED.metadata;
     END;
   `);
 };
