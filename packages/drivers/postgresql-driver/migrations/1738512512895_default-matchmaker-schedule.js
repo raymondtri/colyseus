@@ -17,7 +17,9 @@ exports.shorthands = undefined;
 
 exports.up = (pgm) => {
   // now we add a cron job to pg_cron to run the matchmaker every 15 seconds
-  pgm.createExtension('pg_cron');
+  pgm.createExtension('pg_cron', {
+    ifNotExists: true
+  });
   pgm.sql(`
     SELECT cron.schedule('matchmaker', '*/15 * * * *', $$SELECT matchmaker()$$);
   `);
@@ -32,5 +34,4 @@ exports.down = (pgm) => {
   pgm.sql(`
     SELECT cron.unschedule('matchmaker');
   `);
-  pgm.dropExtension('pg_cron');
 };
