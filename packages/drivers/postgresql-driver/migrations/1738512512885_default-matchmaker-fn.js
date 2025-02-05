@@ -25,6 +25,7 @@ exports.up = (pgm) => {
       rooms RECORD;
       processes RECORD;
       joinable_room RECORD;
+      row RECORD;
     BEGIN
       -- Select and delete rows from queue table in one atomic operation
       WITH deleted_rows AS (
@@ -59,16 +60,11 @@ exports.up = (pgm) => {
         -- now we use the room map to create a synthetic room with default data
         -- a synthetic room is required so that we can create an "expected" room without a process to be matched up later
         INSERT INTO rooms (id, "processId", name, clients, "maxClients", locked, unlisted, private, "eligibleForMatchmaking", metadata)
-        VALUES (
-          SELECT
-            null,
-            row."processId",
-            name, clients, "maxClients", locked, unlisted, private, "eligibleForMatchmaking", metadata
-          FROM room_map WHERE name = row.name
-          );
+        SELECT null, row."processId", name, clients, "maxClients", locked, unlisted, private, "eligibleForMatchmaking", metadata
+        FROM room_map WHERE name = row.name;
 
         -- finally we dispatch a NOTIFY so that the request is fulfilled at the gateway
-        NOTIFY 'queue_' || row.id, json_build_object(
+        PERFORM pg_notify('queue_' || row.id, json_build_object(
           'method', 'create',
           'roomName', row.name,
           'options', row."clientOptions",
@@ -81,7 +77,7 @@ exports.up = (pgm) => {
               'port', port
             ) FROM processes WHERE id = row."processId"
           )
-        );
+        )::text);
 
       END LOOP;
 
@@ -99,7 +95,7 @@ exports.up = (pgm) => {
           UPDATE row SET "processId" = joinable_room."processId" WHERE id = row.id;
 
           -- finally we dispatch a NOTIFY so that the request is fulfilled at the gateway
-          NOTIFY 'queue_' || row.id, json_build_object(
+          PERFORM pg_notify('queue_' || row.id, json_build_object(
             'method', 'join',
             'roomName', row.name,
             'options', row."clientOptions",
@@ -112,7 +108,7 @@ exports.up = (pgm) => {
                 'port', port
               ) FROM processes WHERE id = joinable_room."processId"
             )
-          );
+          )::text);
 
         ELSE
           -- if there isn't a joinable room, we need to create a new room
@@ -123,16 +119,11 @@ exports.up = (pgm) => {
           -- a synthetic room is required so that we can create an "expected" room without a process to be matched up later
 
           INSERT INTO rooms (id, "processId", name, clients, "maxClients", locked, unlisted, private, "eligibleForMatchmaking", metadata)
-          VALUES (
-            SELECT
-              null,
-              row."processId",
-              name, clients, "maxClients", locked, unlisted, private, "eligibleForMatchmaking", metadata
-            FROM room_map WHERE name = row.name
-            );
+          SELECT null, row."processId", name, clients, "maxClients", locked, unlisted, private, "eligibleForMatchmaking", metadata
+          FROM room_map WHERE name = row.name;
 
           -- finally we dispatch a NOTIFY so that the request is fulfilled at the gateway
-          NOTIFY 'queue_' || row.id, json_build_object(
+          PERFORM pg_notify('queue_' || row.id, json_build_object(
             'method', 'create',
             'roomName', row.name,
             'options', row."clientOptions",
@@ -145,7 +136,7 @@ exports.up = (pgm) => {
                 'port', port
               ) FROM processes WHERE id = row."processId"
             )
-          );
+          )::text);
         END IF;
       END LOOP;
 
@@ -163,7 +154,7 @@ exports.up = (pgm) => {
           UPDATE row SET "processId" = joinable_room."processId" WHERE id = row.id;
 
           -- finally we dispatch a NOTIFY so that the request is fulfilled at the gateway
-          NOTIFY 'queue_' || row.id, json_build_object(
+          PERFORM pg_notify('queue_' || row.id, json_build_object(
             'method', 'join',
             'roomName', row.name,
             'options', row."clientOptions",
@@ -176,7 +167,7 @@ exports.up = (pgm) => {
                 'port', port
               ) FROM processes WHERE id = joinable_room."processId"
             )
-          );
+          )::text);
         END IF;
       END LOOP;
     END;
