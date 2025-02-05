@@ -32,6 +32,10 @@ exports.up = (pgm) => {
       type: 'jsonb',
       notNull: false
     },
+    processId: { // processId should never be filled in the queue table because it's used by the matchmaker function
+      type: 'varchar(9)',
+      notNull: false
+    },
     createdAt: {
       type: 'timestamp',
       notNull: true,
