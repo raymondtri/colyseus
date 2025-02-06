@@ -338,7 +338,7 @@ export class PostgresDriver implements MatchMakerDriver {
     // and finally we add the request to the queue by calling the enqueue function
     await client.query(`
       SELECT enqueue($1, $2, $3, $4, $5);
-      `, [method, roomNameOrId, requestId, JSON.stringify(clientOptions), authOptions ? JSON.stringify(authOptions) : null]);
+      `, [requestId, method, roomNameOrId, JSON.stringify(clientOptions), authOptions ? JSON.stringify(authOptions) : null]);
 
     return promise;
   }
