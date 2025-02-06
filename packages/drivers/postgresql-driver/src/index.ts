@@ -99,7 +99,7 @@ export class PostgresDriver implements MatchMakerDriver {
       [
       this.processProperties.processId,
       this.processProperties.publicAddress,
-      this.processProperties.secure || true,
+      this.processProperties.secure || false,
       this.processProperties.pathname || '/',
       this.processProperties.locked || false,
       JSON.stringify(this.processProperties.metadata ?? {})
