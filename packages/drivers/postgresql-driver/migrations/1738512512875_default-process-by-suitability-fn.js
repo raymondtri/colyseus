@@ -10,21 +10,35 @@ exports.shorthands = undefined;
  */
 exports.up = (pgm) => {
   pgm.createFunction('process_by_suitability', ['method varchar(255)', 'roomName varchar(255)', 'clientOptions jsonb', 'authOptions jsonb', 'quantity integer'], {
-    returns: 'TABLE(id varchar(9), publicAddress varchar(42), secure boolean, pathname varchar(255), locked boolean, metadata jsonb, createdAt timestamp, updatedAt timestamp, count bigint)',
+    returns: 'jsonb',
     language: 'plpgsql'
   }, `
     BEGIN
-      RETURN QUERY
+      RETURN (
         WITH process_count AS (
           SELECT "processId", COUNT(clients) AS count
           FROM room
           GROUP BY "processId"
         )
 
-        SELECT p.id, p."publicAddress", p.secure, p.pathname, p.locked, p.metadata, p."createdAt", p."updatedAt", COALESCE(pc.count, 0) as count
+        SELECT jsonb_agg(
+          jsonb_build_object(
+            'id', p.id,
+            'hostname', p.hostname,
+            'port', p.port,
+            'secure', p.secure,
+            'pathname', p.pathname,
+            'locked', p.locked,
+            'metadata', p.metadata,
+            'createdAt', p."createdAt",
+            'updatedAt', p."updatedAt",
+            'count', COALESCE(pc.count, 0)
+          )
+        )
         FROM process p
         LEFT JOIN process_count pc ON p.id = pc."processId"
-        WHERE p.locked = false;
+        WHERE p.locked = false
+      );
     END;
   `)
 };

@@ -10,11 +10,29 @@ exports.shorthands = undefined;
  */
 exports.up = (pgm) => {
   pgm.createFunction('process_by_roomid', ['roomid varchar(9)'], {
-    returns: 'SETOF process',
+    returns: 'jsonb',
     language: 'plpgsql',
   }, `
     BEGIN
-      SELECT * FROM process WHERE id = (SELECT "processId" FROM room WHERE id = roomid);
+      RETURN (
+        SELECT jsonb_agg(
+          jsonb_build_object(
+            'id', p.id,
+            'hostname', p.hostname,
+            'port', p.port,
+            'secure', p.secure,
+            'pathname', p.pathname,
+            'locked', p.locked,
+            'metadata', p.metadata,
+            'createdAt', p."createdAt",
+            'updatedAt', p."updatedAt"
+          )
+        )
+        FROM (
+          SELECT * FROM process 
+          WHERE id = (SELECT "processId" FROM room WHERE id = roomid)
+        ) p
+      );
     END;
   `);
 };

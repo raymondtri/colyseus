@@ -13,10 +13,23 @@ exports.up = (pgm) => {
     returns: 'void',
     language: 'plpgsql'
   }, `
+    DECLARE
+      hostname varchar;
+      port integer;
     BEGIN
-      INSERT INTO process (id, "publicAddress", secure, pathname, locked, metadata)
-      VALUES (processId, publicAddress, secure, pathname, locked, metadata)
-      ON CONFLICT (id) DO UPDATE SET "publicAddress" = EXCLUDED."publicAddress", secure = EXCLUDED.secure, pathname = EXCLUDED.pathname, locked = EXCLUDED.locked, metadata = EXCLUDED.metadata;
+      -- Split publicAddress into hostname and port
+      hostname := split_part(publicAddress, ':', 1);
+      port := (split_part(publicAddress, ':', 2))::integer;
+
+      INSERT INTO process (id, hostname, port, secure, pathname, locked, metadata)
+      VALUES (processId, hostname, port, secure, pathname, locked, metadata)
+      ON CONFLICT (id) DO UPDATE SET 
+        hostname = EXCLUDED.hostname,
+        port = EXCLUDED.port,
+        secure = EXCLUDED.secure,
+        pathname = EXCLUDED.pathname,
+        locked = EXCLUDED.locked,
+        metadata = EXCLUDED.metadata;
     END;
   `);
 };

@@ -274,7 +274,13 @@ export class PostgresDriver implements MatchMakerDriver {
 
       client.release();
 
-      return rows[0];
+      return {
+        method,
+        roomName: roomNameOrID,
+        options: clientOptions,
+        authOptions,
+        settings: rows[0].process_by_suitability[0]
+      };
 
     } else {
       const { rows } = await client.query(`SELECT process_by_room_id('${roomNameOrID}')`);
@@ -285,7 +291,13 @@ export class PostgresDriver implements MatchMakerDriver {
         throw new Error("PostgresDriver: no processes available to dispatch to");
       }
 
-      return rows[0];
+      return {
+        method,
+        roomName: roomNameOrID,
+        options: clientOptions,
+        authOptions,
+        settings: rows[0].process_by_room_id[0]
+      };
     }
   }
 

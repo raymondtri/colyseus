@@ -15,8 +15,12 @@ exports.up = (pgm) => {
       notNull: true,
       primaryKey: true,
     },
-    publicAddress: {
+    hostname: {
       type: 'varchar(42)',
+      notNull: true,
+    },
+    port: {
+      type: 'integer',
       notNull: true,
     },
     secure: {
