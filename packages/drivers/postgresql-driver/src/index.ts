@@ -333,7 +333,7 @@ export class PostgresDriver implements MatchMakerDriver {
         payload: null
       });
       client.release();
-    }, 15000);
+    }, 25000);
 
     // and finally we add the request to the queue by calling the enqueue function
     await client.query(`
